@@ -1,0 +1,18 @@
+[project]
+name = "second-unit-telemetry-sim"
+version = "0.1.0"
+description = "Synthetic VFX render farm emitting OTLP metrics, logs and traces to Grafana Cloud"
+requires-python = ">=3.11"
+dependencies = [
+    "opentelemetry-api>=1.27.0",
+    "opentelemetry-sdk>=1.27.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.27.0",
+    "python-dotenv>=1.0.1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

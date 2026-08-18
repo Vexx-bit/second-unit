@@ -1,4 +1,4 @@
-.PHONY: help verify-mcp mcp-serve compliance
+.PHONY: help verify-mcp mcp-serve compliance sim inject-incident backfill
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -16,3 +16,12 @@ mcp-serve: ## Run mcp-grafana locally over streamable-http on :8000
 
 compliance: ## Run the hackathon AI-dependency guard
 	@./scripts/check-ai-compliance.sh
+
+sim: ## Run a healthy render farm for 10 minutes
+	@cd telemetry-sim && uv run farm.py --duration 600
+
+inject-incident: ## Healthy baseline, then the asset v7 failure at t+120s
+	@cd telemetry-sim && uv run farm.py --duration 600 --inject-incident --incident-at 120
+
+backfill: ## Fast-forward 30 minutes of history so dashboards look lived-in
+	@cd telemetry-sim && uv run farm.py --duration 1800 --speed 10
