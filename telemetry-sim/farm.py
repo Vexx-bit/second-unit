@@ -13,6 +13,28 @@ Configuration comes from the standard OTLP environment variables in .env:
     OTEL_EXPORTER_OTLP_ENDPOINT
     OTEL_EXPORTER_OTLP_HEADERS
     OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+
+---
+
+A NOTE ON METRIC NAMES
+
+Grafana Cloud translates OTLP metric names into Prometheus names: dots become
+underscores, counters gain `_total`, and the unit is appended as a suffix unless
+it is an annotation (a unit wrapped in curly braces, which carries no dimension).
+
+That suffix rule is a trap. A counter with unit "USD" would arrive as
+`render_cost_usd_usd`. So every unit here is either a standard UCUM unit with a
+predictable expansion (`s` -> `_seconds`) or an annotation that is dropped
+(`{frame}`, `{usd}`, `{percent}`). The resulting Prometheus names are exactly:
+
+    render.frames.completed              -> render_frames_completed_total
+    render.cost.usd                      -> render_cost_usd_total
+    render.frame.duration                -> render_frame_duration_seconds_{bucket,sum,count}
+    render.node.gpu.utilization.percent  -> render_node_gpu_utilization_percent
+    render.queue.depth                   -> render_queue_depth
+
+The dashboard in infra/grafana/dashboards/ and the agent's queries both depend
+on these names. If you change a unit here, you break both.
 """
 
 from __future__ import annotations
@@ -95,7 +117,8 @@ def init_telemetry() -> tuple[TracerProvider, MeterProvider, LoggerProvider]:
             "service.name": "render-farm",
             "service.namespace": "second-unit",
             "service.version": "0.1.0",
-            "deployment.environment": "demo",
+            "service.instance.id": "farm-controller-01",
+            "deployment.environment.name": "demo",
             "vfx.shot": SHOT,
         }
     )
@@ -126,7 +149,12 @@ def init_telemetry() -> tuple[TracerProvider, MeterProvider, LoggerProvider]:
 
 
 class Instruments:
-    """Named metric instruments for the farm."""
+    """Named metric instruments for the farm.
+
+    Units are chosen so the Prometheus names are predictable — see the module
+    docstring. Annotation units in curly braces are dropped by the OTLP-to-
+    Prometheus translation rather than appended as a suffix.
+    """
 
     def __init__(self) -> None:
         meter = metrics.get_meter("second_unit.render_farm")
@@ -138,8 +166,8 @@ class Instruments:
         )
         self.cost = meter.create_counter(
             "render.cost.usd",
-            unit="USD",
-            description="Cumulative GPU spend",
+            unit="{usd}",
+            description="Cumulative GPU spend in USD",
         )
         self.frame_duration = meter.create_histogram(
             "render.frame.duration",
@@ -147,8 +175,8 @@ class Instruments:
             description="Wall-clock time to render one frame",
         )
         self.gpu_utilization = meter.create_gauge(
-            "render.node.gpu.utilization",
-            unit="%",
+            "render.node.gpu.utilization.percent",
+            unit="{percent}",
             description="GPU utilization per render node",
         )
         self.queue_depth = meter.create_gauge(
@@ -196,7 +224,10 @@ def render_frame(
         # --- asset_fetch: where the incident bites ------------------------- #
         with tracer.start_as_current_span("asset_fetch") as fetch:
             fetch.set_attribute("asset.version", asset_version)
-            fetch.set_attribute("asset.texture", BROKEN_TEXTURE if will_fail else "skin_albedo.v6.exr")
+            fetch.set_attribute(
+                "asset.texture",
+                BROKEN_TEXTURE if will_fail else "skin_albedo.v6.exr",
+            )
             time.sleep(rng.uniform(0.01, 0.04))
 
             if will_fail:
@@ -219,9 +250,15 @@ def render_frame(
                 )
                 inst.frame_duration.record(duration, {"shot": SHOT, "status": "failed"})
                 # Failing fast still costs a little GPU time.
-                inst.cost.add(duration * GPU_COST_PER_SECOND, {"shot": SHOT, "node": node})
-                # A node that keeps failing sits mostly idle.
-                inst.gpu_utilization.set(rng.uniform(4, 18), {"node": node, "shot": SHOT})
+                inst.cost.add(
+                    duration * GPU_COST_PER_SECOND, {"shot": SHOT, "node": node}
+                )
+                # A node that keeps failing sits mostly idle. This is the
+                # counter-intuitive signal: utilization DROPS during the
+                # incident, so a naive "high utilization" alert never fires.
+                inst.gpu_utilization.set(
+                    rng.uniform(4, 18), {"node": node, "shot": SHOT}
+                )
                 return
 
         # --- the expensive part -------------------------------------------- #
