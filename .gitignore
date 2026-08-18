@@ -5,6 +5,12 @@
 *service-account*.json
 *credentials*.json
 
+# IDE agent MCP configs — these contain plaintext tokens
+.cursor/mcp.json
+.vscode/mcp.json
+.mcp.json
+mcp_config.json
+
 # Python
 __pycache__/
 *.py[cod]
