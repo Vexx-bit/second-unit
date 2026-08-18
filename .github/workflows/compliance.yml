@@ -1,0 +1,33 @@
+name: compliance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ai-dependency-guard:
+    name: AI dependency guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for forbidden AI dependencies
+        run: |
+          chmod +x scripts/check-ai-compliance.sh
+          ./scripts/check-ai-compliance.sh
+
+  secret-guard:
+    name: Secret guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reject committed Grafana tokens
+        run: |
+          if git grep -nIE 'glsa_[A-Za-z0-9_]{16,}|glc_[A-Za-z0-9_]{16,}' -- . ':!.github/workflows/compliance.yml'; then
+            echo "::error::A Grafana token appears to be committed. Rotate it immediately."
+            exit 1
+          fi
+          echo "No Grafana tokens found in tracked files."
