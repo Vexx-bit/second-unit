@@ -47,6 +47,14 @@ def affected_node_count(window: str = "30m") -> str:
     )
 
 
+def failure_ratio_by_node(window: str = "30m") -> str:
+    """The failure ratio per node."""
+    return (
+        f'sum by (node) (increase(render_frames_completed_total{{status="failed"}}[{window}])) '
+        f'/ sum by (node) (increase(render_frames_completed_total[{window}]))'
+    )
+
+
 def affected_node_names(window: str = "30m") -> str:
     """Per-node failure counts, so the report can name the specific nodes."""
     return (
@@ -199,6 +207,7 @@ Ready-made queries you should prefer over composing your own:
   failed frames        {failed_frame_count()}
   blast radius         {affected_node_count()}
   affected nodes       {affected_node_names()}
+  failure ratio/node   {failure_ratio_by_node()}
   GPU spend            {gpu_spend()}
   GPU utilization      {gpu_utilization_by_node()}
   queue depth          {queue_depth()}
