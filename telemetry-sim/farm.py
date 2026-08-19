@@ -353,6 +353,21 @@ def main() -> int:
     # At default --duration 600 and TOTAL_FRAMES 4000, 120s corresponds to
     # frame 801 (120/600 * 4000 + 1).
     incident_frame = max(1, int((args.incident_at / args.duration) * TOTAL_FRAMES) + 1)
+    log.info(
+        "incident onset: frame %d of %d (from --incident-at %d --duration %d)",
+        incident_frame,
+        TOTAL_FRAMES,
+        args.incident_at,
+        args.duration,
+    )
+    if args.duration != 600 or args.incident_at != 120:
+        log.warning(
+            "non-canonical parameters (duration=%d, incident_at=%d). "
+            "Numbers in docs/DEMO-NUMBERS.md apply only to canonical command: "
+            "--duration 600 --incident-at 120",
+            args.duration,
+            args.incident_at,
+        )
 
     try:
         while not stopping:

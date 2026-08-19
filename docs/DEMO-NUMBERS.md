@@ -16,7 +16,8 @@ begin failing.
 ## Measured values
 
 Observed 2026-08-19 via Grafana MCP queries. These supersede all earlier
-estimates.
+estimates. **Note:** These numbers apply strictly and ONLY to the canonical command:
+`uv run farm.py --duration 600 --inject-incident --incident-at 120`. Non-canonical durations or incident-at settings shift the frame calculations.
 
 | Value | Measured | Notes |
 | --- | --- | --- |

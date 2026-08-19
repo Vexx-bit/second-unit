@@ -65,6 +65,16 @@ for pattern in "${SECRET_PATTERNS[@]}"; do
   fi
 done
 
+JSON_FILES=$(git ls-files '*.json' 2>/dev/null || true)
+if [ -n "$JSON_FILES" ]; then
+  # shellcheck disable=SC2086
+  if hits=$(grep -rniE -- '(private_key|type":\s*"service_account)' $JSON_FILES 2>/dev/null); then
+    echo "::error::Service account key material detected in tracked JSON files:"
+    echo "$hits"
+    failed=1
+  fi
+fi
+
 if [ "$failed" -ne 0 ]; then
   cat <<'EOF'
 
