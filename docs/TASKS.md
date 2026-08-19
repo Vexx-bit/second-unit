@@ -38,6 +38,10 @@ Deviations: <anything you did differently, and why>
 | TASK-05 Verify the incident end to end | ✅ done — see `docs/DEMO-NUMBERS.md` |
 | TASK-05b Cap the run at TOTAL_FRAMES | ✅ done |
 | TASK-05c Separate simulated render time from wall-clock | ✅ done |
+| TASK-05d Frame-based deterministic incident onset | ✅ done (3252/748/14) |
+| TASK-05e Guard incident_frame formula | ✅ done |
+| TASK-06 ADK Agent Architecture & Tools | ✅ done |
+| TASK-07 Execute live incident investigation | ✅ done |
 
 **Confirmed stack values** — do not re-derive:
 

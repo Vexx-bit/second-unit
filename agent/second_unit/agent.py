@@ -138,6 +138,7 @@ Return:
 - What you could NOT determine
 
 Do not assert a cause that only one signal supports. Say which signals agree.
+(Note on tool parameters: for query_loki_logs and tempo_traceql-search, omit start/startRfc3339 parameters or pass standard RFC3339 timestamps so the default recent window is searched).
 """,
     tools=[build_grafana_toolset(tool_filter=CORRELATE_TOOLS)],
     output_key="correlation_findings",
@@ -165,8 +166,8 @@ Your job is to produce the report a VFX supervisor reads at 6am, and to record
 the finding in Grafana so it is visible on the dashboard.
 
 Steps:
-1. Find the dashboard with uid `second-unit-farm`.
-2. Write a Grafana annotation recording the finding. Tag it `second-unit` and
+1. Verify the dashboard exists by fetching it with `get_dashboard_by_uid` (uid="second-unit-farm").
+2. Write a Grafana annotation recording the finding using `create_annotation` (with dashboardUid="second-unit-farm", tags=["second-unit", "root-cause"], text="...", time=...). Tag it `second-unit` and
    `root-cause` — the dashboard has an annotation query on the `second-unit` tag,
    so this makes the finding appear on every time-series panel. Keep the
    annotation text to one or two sentences naming the root cause and the blast
