@@ -281,10 +281,10 @@ def render_frame(
         state.frames_done += 1
 
         log.info(
-            "frame %d rendered on %s in %.2fs",
+            "frame %d rendered on %s in %.1fs (simulated)",
             frame,
             node,
-            duration,
+            gpu_seconds,
             extra={**base_attrs, "asset_version": asset_version},
         )
         inst.frames_completed.add(1, {"shot": SHOT, "node": node, "status": "succeeded"})
@@ -348,6 +348,11 @@ def main() -> int:
 
     started = time.monotonic()
     frame = 1
+    # Deterministic incident trigger: convert the configured seconds threshold
+    # to an exact frame index based on the known total frames and duration.
+    # At default --duration 600 and TOTAL_FRAMES 4000, 120s corresponds to
+    # frame 801 (120/600 * 4000 + 1).
+    incident_frame = max(1, int((args.incident_at / args.duration) * TOTAL_FRAMES) + 1)
 
     try:
         while not stopping:
@@ -358,7 +363,7 @@ def main() -> int:
             if (
                 args.inject_incident
                 and not state.incident_active
-                and elapsed >= args.incident_at
+                and frame >= incident_frame
             ):
                 state.incident_active = True
                 log.error(

@@ -20,9 +20,9 @@ estimates.
 
 | Value | Measured | Notes |
 | --- | --- | --- |
-| Frames succeeded | 3,250 | |
-| Frames failed | **750** | `increase(...[15m])` reads ~761.3 — extrapolation artefact, see below |
-| Total frames | 4,000 | 3,250 succeeded + 750 failed (capped at TOTAL_FRAMES) |
+| Frames succeeded | 3,252 | |
+| Frames failed | **748** | `increase(...[15m])` reads ~760 — extrapolation artefact, see below |
+| Total frames | 4,000 | 3,252 succeeded + 748 failed (strictly deterministic given seed 42) |
 | Nodes affected | **14** | of 40. Seed-locked, exact, reproducible |
 | Nodes healthy | 26 | |
 | Frame duration (p95) | ~476s | simulated 4K path-traced render time (3–7 min range) |
@@ -32,9 +32,14 @@ estimates.
 | Failing span | `asset_fetch` | `error.type=AssetResolutionError` |
 | Asset version | `v7` | healthy predecessor was `v6` |
 | Broken texture | `/assets/SH042_beach_dusk/tex/skin_albedo.v7.exr` | |
-| Total GPU spend | **$3,949.68** | measured via `sum(increase(render_cost_usd_total[15m]))` |
-| Rework cost (failed frames) | **$922.50** | 750 frames × 300s mean × $0.0041/s |
-| Schedule impact | **1.56 hours** | (750 frames × 300s) / 40 nodes = 5,625s (~1h 34m delay) |
+| Total GPU spend | **~$3,940** | measured via `sum(increase(render_cost_usd_total[15m]))` |
+| Rework cost (failed frames) | **$920.04** | 748 frames × 300s mean × $0.0041/s |
+| Schedule impact | **1.56 hours** | (748 frames × 300s) / 40 nodes = 5,610s (~1h 34m delay) |
+
+### Determinism
+
+Given the default seed (`--seed 42`) and frame-based incident onset (`incident_frame = 801`),
+the run is strictly deterministic and byte-identical across runs regardless of host CPU speed or scheduling.
 
 ### Measured GPU spend
 
@@ -42,11 +47,11 @@ estimates.
 sum(increase(render_cost_usd_total[15m]))
 ```
 
-The measured total GPU spend across the 15-minute run window is **$3,949.68**.
+The measured total GPU spend across the 15-minute run window is **~$3,940**.
 
 ### Why the PromQL count differs from the simulator count
 
-The simulator printed `750 failed`. `increase()` over 15 minutes reads ~761.3.
+The simulator prints `748 failed`. `increase()` over 15 minutes reads ~760.
 
 Both are correct. `increase()` extrapolates to the window edges and returns a
 float, so it will not exactly match a discrete counter total. When quoting a
@@ -55,7 +60,7 @@ never present a fractional frame count.
 
 ## Narration guidance
 
-Use **750 frames**, **14 of 40 nodes**, **$922.50 rework cost** ($3,949.68 total batch spend), and **1.56 hours delivery delay**. All are real, measured, and
+Use **748 frames**, **14 of 40 nodes**, **$920.04 rework cost** (~$3,940 total batch spend), and **1.56 hours delivery delay**. All are real, measured, and
 reproducible.
 
 The strongest line available is the GPU utilization inversion: the failing nodes

@@ -48,21 +48,34 @@ for term in "${FORBIDDEN[@]}"; do
   fi
 done
 
+SECRET_PATTERNS=(
+  'glsa_[0-9A-Za-z_-]{32,}'
+  'glc_[0-9A-Za-z_-]{32,}'
+  'AIza[0-9A-Za-z_-]{35}'
+  'github_pat_[0-9A-Za-z_-]{22,}'
+)
+
+ALL_TRACKED=$(git ls-files)
+for pattern in "${SECRET_PATTERNS[@]}"; do
+  # shellcheck disable=SC2086
+  if hits=$(grep -rnE -- "$pattern" $ALL_TRACKED 2>/dev/null); then
+    echo "::error::Secret pattern '$pattern' found in tracked files:"
+    echo "$hits"
+    failed=1
+  fi
+done
+
 if [ "$failed" -ne 0 ]; then
   cat <<'EOF'
 
 ------------------------------------------------------------------
-COMPLIANCE FAILURE
+COMPLIANCE / SECRET SCAN FAILURE
 
-This project may use Google Cloud AI tooling only (google-adk,
-google-genai, google-generativeai, google-cloud-aiplatform) plus the
-Grafana stack. Any other AI model, agent framework, or AI API is a
-hackathon disqualification.
-
-Remove the dependency above. Do not add an exception.
+Forbidden AI dependencies or secrets were detected in tracked files.
+Remove secrets and unpermitted dependencies immediately.
 ------------------------------------------------------------------
 EOF
   exit 1
 fi
 
-echo "AI compliance check passed: no forbidden AI dependencies found."
+echo "AI compliance and secret checks passed: no forbidden AI dependencies or secrets found."

@@ -106,5 +106,5 @@ def build_grafana_toolset(tool_filter: list[str] | None = None) -> Any:
             "GRAFANA_SERVICE_ACCOUNT_TOKEN": token,
         },
     )
-    params = StdioConnectionParams(server_params=server_params)
+    params = StdioConnectionParams(server_params=server_params, timeout=30.0)
     return McpToolset(connection_params=params, tool_filter=tool_filter)
