@@ -4,8 +4,8 @@ version = "0.1.0"
 description = "Autonomous render-farm incident investigator built on Google ADK"
 requires-python = ">=3.11"
 
-# HACKATHON CONSTRAINT: Google AI tooling only. No openai, anthropic,
-# langchain, litellm, or any other model provider or agent framework.
+# HACKATHON CONSTRAINT: Google AI tooling only. Non-Google AI model providers
+# and third-party agent frameworks are forbidden.
 # See scripts/check-ai-compliance.sh — CI fails the build if one appears here.
 dependencies = [
     "google-adk>=1.0.0",
