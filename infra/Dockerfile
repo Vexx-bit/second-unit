@@ -17,46 +17,43 @@
 # token.
 #
 # docs/DEPLOYMENT.md records the alternative and why it was rejected.
+#
+# WHY uvx AND NOT A GO BUILD
+#
+# An earlier revision built mcp-grafana from source in a golang builder stage.
+# That was unnecessary: it is installable with uvx, which is exactly how the
+# local dev setup and the IDE launch it. Matching the local launch command is
+# worth more than a marginally smaller image, because it removes the class of bug
+# where the MCP server behaves differently in Cloud Run than on the laptop the
+# demo was rehearsed on.
 
-# --------------------------------------------------------------------------- #
-# Stage 1 — build the mcp-grafana binary
-# --------------------------------------------------------------------------- #
-FROM golang:1.23-bookworm AS mcp-builder
-
-# VERIFY THIS PATH before trusting the build. Check the install instructions in
-# https://github.com/grafana/mcp-grafana — if the cmd path differs, fix it here
-# rather than working around a build failure.
-RUN go install github.com/grafana/mcp-grafana/cmd/mcp-grafana@latest
-
-# --------------------------------------------------------------------------- #
-# Stage 2 — the agent runtime
-# --------------------------------------------------------------------------- #
 FROM python:3.12-slim-bookworm
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=mcp-builder /go/bin/mcp-grafana /usr/local/bin/mcp-grafana
-
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uvx /usr/local/bin/uvx
+
+ENV PATH="/root/.local/bin:${PATH}" \
+    PYTHONUNBUFFERED=1 \
+    AGENT_ENV=cloudrun \
+    UV_LINK_MODE=copy
 
 WORKDIR /app
 
 COPY agent/pyproject.toml /app/pyproject.toml
 RUN uv pip install --system --no-cache -r pyproject.toml
 
-COPY agent/second_unit /app/second_unit
+# Pre-warm the uvx cache so the first MCP call does not pay a download. The agent
+# still launches it as `uvx mcp-grafana`, identical to local development.
+RUN uv tool install mcp-grafana
 
-# The toolset spawns the MCP server by command name. With the binary on PATH,
-# stdio works identically here and on a laptop — so "works locally, breaks in
-# Cloud Run" is not a class of bug this project can have.
-ENV GRAFANA_MCP_COMMAND=mcp-grafana \
-    PYTHONUNBUFFERED=1 \
-    AGENT_ENV=cloudrun
+COPY agent/second_unit /app/second_unit
 
 EXPOSE 8080
 
-# VERIFY the flags with `adk api_server --help` for your pinned ADK version
-# before the first deploy. Do not guess at them.
+# VERIFY the flags with `adk api_server --help` for ADK 2.7.1 before the first
+# deploy. Do not guess at them.
 CMD ["sh", "-c", "adk api_server --host 0.0.0.0 --port ${PORT:-8080} /app"]
