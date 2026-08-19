@@ -32,84 +32,21 @@ from __future__ import annotations
 import os
 from typing import Any
 
-_API_REFERENCE = "https://adk.dev/api-reference/python/"
-
-
-def _resolve(names: list[tuple[str, str]], what: str) -> Any:
-    """Import the first name that exists, or raise a directive error.
-
-    Args:
-        names: (module_path, attribute_name) candidates, in preference order.
-        what: human description used in the error message.
-    """
-    import importlib
-
-    attempted = []
-    for module_path, attr in names:
-        attempted.append(f"{module_path}.{attr}")
-        try:
-            module = importlib.import_module(module_path)
-        except ImportError:
-            continue
-        resolved = getattr(module, attr, None)
-        if resolved is not None:
-            return resolved
-
-    raise ImportError(
-        f"Could not resolve {what} in the installed google-adk.\n"
-        f"Tried: {', '.join(attempted)}\n"
-        f"Check the API reference at {_API_REFERENCE} for the current name, then "
-        f"update agent/second_unit/mcp_tools.py. Do NOT invent a name."
-    )
-
-
-def _mcp_toolset_cls() -> Any:
-    return _resolve(
-        [
-            ("google.adk.tools.mcp_tool", "McpToolset"),
-            ("google.adk.tools.mcp_tool", "MCPToolset"),
-            ("google.adk.tools.mcp_tool.mcp_toolset", "MCPToolset"),
-            ("google.adk.tools", "McpToolset"),
-        ],
-        "the MCP toolset class",
-    )
-
-
-def _http_params_cls() -> Any:
-    return _resolve(
-        [
-            ("google.adk.tools.mcp_tool", "StreamableHTTPConnectionParams"),
-            ("google.adk.tools.mcp_tool", "StreamableHTTPServerParams"),
-            (
-                "google.adk.tools.mcp_tool.mcp_session_manager",
-                "StreamableHTTPConnectionParams",
-            ),
-        ],
-        "the streamable-http connection params class",
-    )
-
-
-def _stdio_params_cls() -> Any:
-    return _resolve(
-        [
-            ("google.adk.tools.mcp_tool", "StdioConnectionParams"),
-            ("google.adk.tools.mcp_tool.mcp_session_manager", "StdioConnectionParams"),
-            ("google.adk.tools.mcp_tool", "StdioServerParameters"),
-        ],
-        "the stdio connection params class",
-    )
-
+from google.adk.tools.mcp_tool import (
+    McpToolset,
+    StdioConnectionParams,
+    StreamableHTTPConnectionParams,
+)
+from mcp import StdioServerParameters
 
 # Tools each sub-agent is allowed to touch. Narrow allowlists keep the model from
 # wandering into unrelated capabilities and make the investigation reproducible.
 #
-# NOTE: these names must match the tools your mcp-grafana build actually exposes.
-# Verify with a tools/list call before relying on them — see TASK-06.
+# Verified against mcp-grafana tool names on the live stack (TASK-06):
 TRIAGE_TOOLS = [
     "list_datasources",
     "query_prometheus",
-    "list_alert_rules",
-    "get_alert_rule_by_uid",
+    "alerting_manage_rules",
 ]
 
 CORRELATE_TOOLS = [
@@ -118,8 +55,8 @@ CORRELATE_TOOLS = [
     "query_loki_logs",
     "query_loki_stats",
     "list_loki_label_values",
-    "query_tempo_traces",
-    "get_trace",
+    "tempo_traceql-search",
+    "tempo_get-trace",
 ]
 
 REPORT_TOOLS = [
@@ -139,12 +76,11 @@ def build_grafana_toolset(tool_filter: list[str] | None = None) -> Any:
     Raises:
         RuntimeError: if the required environment variables are missing.
     """
-    toolset_cls = _mcp_toolset_cls()
     mcp_url = os.getenv("GRAFANA_MCP_URL", "").strip()
 
     if mcp_url:
-        params = _http_params_cls()(url=mcp_url)
-        return toolset_cls(connection_params=params, tool_filter=tool_filter)
+        params = StreamableHTTPConnectionParams(url=mcp_url)
+        return McpToolset(connection_params=params, tool_filter=tool_filter)
 
     grafana_url = os.getenv("GRAFANA_URL", "").strip()
     token = os.getenv("GRAFANA_SERVICE_ACCOUNT_TOKEN", "").strip()
@@ -162,8 +98,7 @@ def build_grafana_toolset(tool_filter: list[str] | None = None) -> Any:
             "mcp-grafana builds malformed request paths otherwise."
         )
 
-    params_cls = _stdio_params_cls()
-    params = params_cls(
+    server_params = StdioServerParameters(
         command="uvx",
         args=["mcp-grafana"],
         env={
@@ -171,4 +106,5 @@ def build_grafana_toolset(tool_filter: list[str] | None = None) -> Any:
             "GRAFANA_SERVICE_ACCOUNT_TOKEN": token,
         },
     )
-    return toolset_cls(connection_params=params, tool_filter=tool_filter)
+    params = StdioConnectionParams(server_params=server_params)
+    return McpToolset(connection_params=params, tool_filter=tool_filter)
