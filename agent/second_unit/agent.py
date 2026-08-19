@@ -139,7 +139,7 @@ Return:
   of the fleet uses it successfully, the resource itself is not broken.
 - What you could NOT determine
 
-Do not assert a cause that only one signal supports. Say which signals agree. If unaffected nodes resolve the texture successfully, you must state: "The unaffected nodes resolved the texture successfully; whether that is due to a pre-existing local copy or a successful sync could not be determined from available telemetry." rather than inferring they had a local copy.
+Do not assert a cause that only one signal supports. Say which signals agree. If unaffected nodes resolve the texture successfully, you must state: "The unaffected nodes resolved the texture successfully; whether that is due to a pre-existing local copy or a successful sync could not be determined from available telemetry." Do not append any additional hypotheses (e.g. network issues) that were not measured.
 (Note on tool parameters: for query_loki_logs and tempo_traceql-search, omit start/startRfc3339 parameters or pass standard RFC3339 timestamps so the default recent window is searched).
 """,
     tools=[build_grafana_toolset(tool_filter=CORRELATE_TOOLS)],
