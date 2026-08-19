@@ -37,6 +37,7 @@ Deviations: <anything you did differently, and why>
 | TASK-04 Create the alert rule | ✅ done — uid `dfvmtt22674e8b` |
 | TASK-05 Verify the incident end to end | ✅ done — see `docs/DEMO-NUMBERS.md` |
 | TASK-05b Cap the run at TOTAL_FRAMES | ✅ done |
+| TASK-05c Separate simulated render time from wall-clock | ✅ done |
 
 **Confirmed stack values** — do not re-derive:
 
@@ -142,6 +143,34 @@ This matters for two reasons:
       `docs/DEMO-NUMBERS.md`, replacing the current ones
 - [x] Also record the measured `sum(increase(render_cost_usd_total[15m]))` — that
       value is currently TBD and the demo narration needs it
+
+---
+
+### TASK-05c — Separate simulated render time from wall-clock
+
+**Bug surfaced by cost breakdown:** In `render_frame()`, the success path computed
+`gpu_seconds` for cost but recorded `duration` (wall-clock, ~0.1s) into the
+`frame_duration` histogram.
+
+**Do:**
+1. Raise simulated render time to realistic 4K path-traced values: `gpu_seconds = rng.uniform(180, 420)` (mean 300s).
+2. Record `gpu_seconds` into the `frame_duration` histogram on success.
+3. Record realistic simulated fail-fast duration (`rng.uniform(0.15, 0.45)`) on the failed path.
+4. Keep wall-clock runtime at ~10 min for `--duration 600`.
+5. Measure p95 duration, batch GPU spend, rework cost, and schedule impact.
+
+**Acceptance criteria**
+
+- [x] Affected node count still EXACTLY 14
+- [x] `succeeded + failed <= 4000` (3,250 succeeded, 750 failed)
+- [x] Wall-clock runtime ~10 min for `--duration 600`
+- [x] `histogram_quantile(0.95, ...)` returns value in low hundreds of seconds (~476s)
+- [x] `sum(increase(render_cost_usd_total[15m]))` in low thousands of USD ($3,949.68)
+- [x] Rework cost computed and recorded: 750 frames × 300s × $0.0041/s = $922.50
+- [x] Schedule impact computed and recorded: (750 frames × 300s) / 40 nodes = 1.56 hours (~1h 34m)
+- [x] Updated `docs/DEMO-NUMBERS.md` with all new measured values
+- [x] Updated `docs/PROJECT_BRIEF.md` with measured rework figure ($922.50)
+- [x] Pushed to `sprint/1-telemetry-dashboard` updating PR #1
 
 ---
 

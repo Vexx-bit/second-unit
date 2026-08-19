@@ -73,7 +73,7 @@ Steps, in order:
 3. Query the affected node count, then the per-node failure breakdown.
 4. Query GPU spend and queue depth.
 5. Query GPU utilization by node.
-6. Check the alert rules to see which alert is firing, if any.
+6. Check the alert rules to see which alert is firing, if any. You may only READ alert state (using alerting_manage_rules with operation='list' or 'get'). Never create, modify, pause, or delete an alert rule. If a tool offers a write action, do not use it.
 
 Interpretive note that matters: if GPU utilization has DROPPED on the failing
 nodes, that is consistent with fast failures rather than heavy work. Do not
