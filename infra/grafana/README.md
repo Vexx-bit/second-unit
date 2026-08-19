@@ -1,5 +1,29 @@
 # Grafana configuration
 
+## Stack details
+
+| | |
+| --- | --- |
+| Stack URL | `https://violetheron2036.grafana.net` |
+| Region | `prod-eu-west-2` |
+| OTLP endpoint | `https://otlp-gateway-prod-eu-west-2.grafana.net/otlp` |
+
+### Datasource UIDs
+
+Confirmed against the live stack on 2026-08-19 via `list_datasources`:
+
+| Signal | Datasource UID | Type |
+| --- | --- | --- |
+| Metrics | `grafanacloud-violetheron2036-prom` | Prometheus (default) |
+| Logs | `grafanacloud-violetheron2036-logs` | Loki |
+| Traces | `grafanacloud-violetheron2036-traces` | Tempo |
+
+The agent will need all three. Prefer resolving them at runtime through the MCP
+datasource-listing tool rather than hardcoding these strings — they are recorded
+here for reference and debugging, not as configuration.
+
+---
+
 ## Why not the community APM dashboard?
 
 Grafana's onboarding suggests **"Lightweight APM for OpenTelemetry"** (dashboard
@@ -29,8 +53,8 @@ makes it part of the demo rather than decoration.
 2. Paste the contents of `dashboards/render-farm.json` into the JSON box, or
    upload the file
 3. Click **Load**, then pick your datasources:
-   - **Metrics** → `grafanacloud-<stack>-prom`
-   - **Logs** → `grafanacloud-<stack>-logs`
+   - **Metrics** → `grafanacloud-violetheron2036-prom`
+   - **Logs** → `grafanacloud-violetheron2036-logs`
 4. **Import**
 
 Set the time range to **Last 1 hour** and confirm panels populate. If they are
