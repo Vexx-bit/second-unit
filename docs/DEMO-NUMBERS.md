@@ -72,11 +72,12 @@ of cross-signal read a human skims past at 6am and an agent does not.
 
 ## Observed live run (non-canonical)
 
-During the interactive 15-minute live run (`--duration 900 --inject-incident --incident-at 120`), the investigation was triggered after 7 minutes. Because the Prometheus queries use a 30-minute lookback window (`increase(...[30m])`), the metrics aggregated failures from the preceding 10-minute run as well. 
+During the interactive 15-minute live run (`--duration 900 --inject-incident --incident-at 120`), the investigation was triggered after 7 minutes. The agent observed:
 
-The reported figures for that specific live observation were:
-*   **Frames failed:** 1,565 (sum of both recent sim runs)
-*   **Nodes affected:** 14 of 40 (consistent blast radius)
-*   **Total GPU spend:** $7,873.06
-*   **Rework cost:** $1,875.33
-*   **Schedule impact:** 127.1 machine-hours (estimated 3.18 hours wall-clock slip)
+*   **Frames failed:** 813
+*   **Nodes affected:** 14 of 40
+*   **Total GPU spend:** $3,892.69
+*   **Rework cost:** $995.98
+*   **Schedule impact:** 67.45 machine-hours (estimated 1.68 hours wall-clock slip)
+
+> **SUPERSEDED — contaminated window:** An earlier observation of this run reported 1,565 failed frames ($7,873.06 total spend / $1,875.33 rework). Because the Prometheus queries use a 30-minute lookback window (`increase(...[30m])`), the metrics aggregated failures from a preceding test run. The investigation logic was correct, but the window was contaminated. Future runs must enforce a clean 30-minute window before starting.

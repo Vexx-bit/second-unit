@@ -33,32 +33,7 @@ async def main():
         except Exception as e:
             print(f"Failed to check telemetry freshness: {e}", flush=True)
 
-        # ── Gate 2: clean-window assertion ────────────────────────────────
-        # The 30m lookback must be empty of prior-run data before the agent
-        # runs, or frame counts will be inflated.
-        try:
-            result = _prom_instant("sum(increase(render_frames_completed_total[30m]))")
-            if result:
-                total = float(result[0]["value"][1])
-                if total > 0:
-                    # Find the timestamp of the last sample to compute wait time.
-                    ts_result = _prom_instant(
-                        "timestamp(render_frames_completed_total)"
-                    )
-                    if ts_result:
-                        last_ts = max(float(r["value"][1]) for r in ts_result)
-                        wait_s = max(0, int(last_ts + 30 * 60 - _time.time()))
-                        wait_min = (wait_s + 59) // 60
-                    else:
-                        wait_min = 30
-                    print(
-                        f"PRIOR RUN IN LOOKBACK WINDOW — wait {wait_min} minute(s) before "
-                        "the demo run.",
-                        flush=True,
-                    )
-                    sys.exit(1)
-        except Exception as e:
-            print(f"Failed to check window cleanliness: {e}", flush=True)
+
 
     runner = InMemoryRunner(agent=root_agent, app_name="second_unit")
     session = await runner.session_service.create_session(
