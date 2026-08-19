@@ -118,9 +118,9 @@ visible in any single signal — it only appears when you cross them.
 Steps, in order:
 1. Query Loki for FATAL render log lines. Read the actual error text.
 2. Query Loki for asset resolution errors specifically.
-3. Count error lines by node. Note: `shot` is structured metadata, not a stream label. Call `list_loki_label_values` before adding any label to a stream selector, and use `error_lines_by_node()` from queries.py unmodified. If the cross-check query fails, report the cross-check as NOT PERFORMED rather than asserting the node sets match.
-4. Query Loki for asset publish events near the incident start time. A change
-   that precedes the failures is a prime suspect.
+3. Count error lines by node using `error_lines_by_node()` from queries.py unmodified. If the query itself returns empty, report the cross-check as NOT PERFORMED. Then explicitly compare the log-derived node set against Triage's metric-derived set and state whether they match.
+4. Query Loki for asset publish events near the incident start time (pass `direction="backward"` and `limit=5` to the tool to get the newest first). A change
+   that precedes the failures is a prime suspect. When correlating a trigger event with failure onset, compute the actual interval in minutes from the two timestamps and state it. Never describe an interval you have not calculated. If multiple publish events exist, use the most recent one preceding the first failure and say so.
 5. Query Tempo for error traces on the render-farm service.
 6. Inspect a failing trace in detail. Identify WHICH SPAN fails. Read that
    span's attributes carefully — particularly any asset version.
@@ -139,9 +139,8 @@ Return:
   of the fleet uses it successfully, the resource itself is not broken.
 - What you could NOT determine
 
-Do not assert a cause that only one signal supports. Say which signals agree.
+Do not assert a cause that only one signal supports. Say which signals agree. If unaffected nodes resolve the texture successfully, you must state: "The unaffected nodes resolved the texture successfully; whether that is due to a pre-existing local copy or a successful sync could not be determined from available telemetry." rather than inferring they had a local copy.
 (Note on tool parameters: for query_loki_logs and tempo_traceql-search, omit start/startRfc3339 parameters or pass standard RFC3339 timestamps so the default recent window is searched).
-(Note on TraceQL/LogQL Discipline: Always use `list_loki_label_values` before filtering on strings).
 """,
     tools=[build_grafana_toolset(tool_filter=CORRELATE_TOOLS)],
     output_key="correlation_findings",

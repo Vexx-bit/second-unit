@@ -36,12 +36,23 @@ async def main():
     )
 
     print("=== STARTING SECOND UNIT INVESTIGATION ===", flush=True)
+    last_author = None
     async for event in runner.run_async(
         user_id="supervisor",
         session_id=session.id,
         new_message=content,
     ):
         author = getattr(event, "author", None) or getattr(event, "node_name", None) or "agent"
+
+        if last_author and author != last_author:
+            if hasattr(runner, "_last_state") and runner._last_state:
+                for k, v in runner._last_state.items():
+                    print(f"\n=======================================================", flush=True)
+                    print(f"[{last_author}] STAGE OUTPUT: {k}", flush=True)
+                    print(f"=======================================================", flush=True)
+                    print(v, flush=True)
+                runner._last_state = {}
+        last_author = author
         
         # Check function call (tool call)
         calls = event.get_function_calls() if hasattr(event, "get_function_calls") else []
@@ -68,12 +79,17 @@ async def main():
         # Check state changes (triage_findings, correlation_findings, triage_report)
         if hasattr(event, "actions") and event.actions:
             if hasattr(event.actions, "state_delta") and event.actions.state_delta:
-                for k, v in event.actions.state_delta.items():
-                    print(f"\n=======================================================", flush=True)
-                    print(f"[{author}] STAGE OUTPUT: {k}", flush=True)
-                    print(f"=======================================================", flush=True)
-                    print(v, flush=True)
+                last_state = getattr(runner, "_last_state", {})
+                last_state.update(event.actions.state_delta)
+                runner._last_state = last_state
 
+    if hasattr(runner, "_last_state") and runner._last_state:
+        for k, v in runner._last_state.items():
+            print(f"\n=======================================================", flush=True)
+            print(f"[{last_author}] STAGE OUTPUT: {k}", flush=True)
+            print(f"=======================================================", flush=True)
+            print(v, flush=True)
+        runner._last_state = {}
 
 if __name__ == "__main__":
     asyncio.run(main())
