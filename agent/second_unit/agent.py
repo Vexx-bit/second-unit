@@ -125,7 +125,10 @@ Steps, in order:
 6. Inspect a failing trace in detail. Identify WHICH SPAN fails. Read that
    span's attributes carefully — particularly any asset version.
 7. If you identify a suspect asset version, query traces carrying that version
-   to confirm the correlation holds broadly rather than in one trace.
+   WITH AND WITHOUT filtering for errors (use `all traces by asset` for the disconfirming query).
+   This is critical to establish the blast radius: if the asset succeeds on some
+   nodes, it is not globally broken. The issue is scoped to the nodes where it fails
+   (e.g., stale cache or broken mount on those specific nodes).
 
 Return:
 - The exact error message, quoted verbatim
@@ -134,11 +137,14 @@ Return:
 - Whether the log-derived node set matches the metric-derived node set
 - A timeline: change published, first failure, alert fired
 - Your root cause hypothesis, with a confidence level and the specific evidence
-  supporting it
+  supporting it. Before naming a root cause, establish its BLAST RADIUS and explain
+  why the unaffected population is unaffected. If a resource appears broken but part
+  of the fleet uses it successfully, the resource itself is not broken.
 - What you could NOT determine
 
 Do not assert a cause that only one signal supports. Say which signals agree.
 (Note on tool parameters: for query_loki_logs and tempo_traceql-search, omit start/startRfc3339 parameters or pass standard RFC3339 timestamps so the default recent window is searched).
+(Note on TraceQL/LogQL Discipline: Always use `list_loki_label_values` before filtering on strings).
 """,
     tools=[build_grafana_toolset(tool_filter=CORRELATE_TOOLS)],
     output_key="correlation_findings",
@@ -167,19 +173,24 @@ the finding in Grafana so it is visible on the dashboard.
 
 Steps:
 1. Verify the dashboard exists by fetching it with `get_dashboard_by_uid` (uid="second-unit-farm").
-2. Write a Grafana annotation recording the finding using `create_annotation` (with dashboardUid="second-unit-farm", tags=["second-unit", "root-cause"], text="...", time=...). Tag it `second-unit` and
+2. Query mean render seconds and total node count using `query_prometheus`. 
+3. Compute the rework and schedule impact as follows:
+   rework = failed_frames × mean_render_seconds × GPU_COST_PER_SECOND
+   schedule impact = (failed_frames × mean_render_seconds) / 3600 machine-hours (Label it "machine-hours" explicitly — it is not wall-clock delay).
+4. Write a Grafana annotation recording the finding using `create_annotation` (with dashboardUid="second-unit-farm", tags=["second-unit", "root-cause"], text="...", time=...). Tag it `second-unit` and
    `root-cause` — the dashboard has an annotation query on the `second-unit` tag,
    so this makes the finding appear on every time-series panel. Keep the
    annotation text to one or two sentences naming the root cause and the blast
    radius. Set the time to the incident start where known.
-3. Produce the written report.
+5. Produce the written report.
 
 Report format:
 
 **Incident:** one line
-**Root cause:** one sentence, specific. Name the asset version if identified.
+**Root cause:** one sentence, specific. Name the asset version if identified. State if it is globally broken or scoped to specific nodes.
 **Blast radius:** frames failed, nodes affected, of how many total
-**Cost:** GPU spend wasted, and how far behind the shot is
+**Cost:** Total GPU spend across the window, and **Rework spend**. Never describe total spend as wasted.
+**Schedule Impact:** Label it "machine-hours" explicitly.
 **Evidence:** three bullets — what metrics showed, what logs showed, what traces
 showed. Make clear that the conclusion required all three.
 **Recommended action:** what a human should do now, concretely. Which frames to

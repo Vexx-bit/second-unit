@@ -64,6 +64,7 @@ REPORT_TOOLS = [
     "search_dashboards",
     "get_dashboard_by_uid",
     "create_annotation",
+    "query_prometheus",
 ]
 
 

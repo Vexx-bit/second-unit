@@ -46,9 +46,9 @@ Deviations: <anything you did differently, and why>
 **Confirmed stack values** — do not re-derive:
 
 - Stack: `https://violetheron2036.grafana.net`
-- Metrics: `grafanacloud-violetheron2036-prom`
-- Logs: `grafanacloud-violetheron2036-logs`
-- Traces: `grafanacloud-violetheron2036-traces`
+- Metrics: `grafanacloud-prom`
+- Logs: `grafanacloud-logs`
+- Traces: `grafanacloud-traces`
 
 **Frozen metric names** — verified against the live stack. Changing any of these
 now requires updating `telemetry-sim/farm.py`, the dashboard JSON, and
@@ -86,8 +86,8 @@ human and move on:
 > 2. **Dashboards → New → Import**
 > 3. Paste the contents of `infra/grafana/dashboards/render-farm.json`
 > 4. **Load**
-> 5. Map: **Metrics** → `grafanacloud-violetheron2036-prom`,
->    **Logs** → `grafanacloud-violetheron2036-logs`
+> 5. Map: **Metrics** → `grafanacloud-prom`,
+>    **Logs** → `grafanacloud-logs`
 > 6. **Import**
 
 Do not reach the Grafana HTTP API directly with the service account token as a

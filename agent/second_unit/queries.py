@@ -18,6 +18,13 @@ SHOT = "SH042_beach_dusk"
 SERVICE_NAME = "render-farm"
 
 # --------------------------------------------------------------------------- #
+# Constants
+# --------------------------------------------------------------------------- #
+
+# Billing rate supplied by the studio, not a measurement.
+GPU_COST_PER_SECOND = 0.0041
+
+# --------------------------------------------------------------------------- #
 # Metrics (PromQL) — scope the incident
 # --------------------------------------------------------------------------- #
 
@@ -82,6 +89,19 @@ def frame_duration_p95(window: str = "5m") -> str:
     )
 
 
+def mean_render_seconds(window: str = "5m") -> str:
+    """Mean successful frame render duration."""
+    return (
+        f'sum(rate(render_frame_duration_seconds_sum{{status="succeeded"}}[{window}])) '
+        f'/ sum(rate(render_frame_duration_seconds_count{{status="succeeded"}}[{window}]))'
+    )
+
+
+def total_node_count() -> str:
+    """Total nodes available for rendering."""
+    return f'count(count by (node) (render_node_gpu_utilization_percent{{shot="{SHOT}"}}))'
+
+
 # --------------------------------------------------------------------------- #
 # Logs (LogQL) — find the error text
 # --------------------------------------------------------------------------- #
@@ -129,10 +149,22 @@ def failing_asset_fetch_spans() -> str:
 
 
 def traces_by_asset_version(version: str) -> str:
-    """Traces carrying a specific asset revision.
+    """Traces carrying a specific asset revision, filtering for errors.
+    
+    This is useful for finding the failing population, but MUST be paired with
+    a disconfirming query to check if the asset succeeds elsewhere.
+    """
+    return (
+        f'{{resource.service.name="{SERVICE_NAME}" '
+        f'&& span.asset.version="{version}" && status=error}}'
+    )
 
-    This is the query that closes the investigation: it ties the failures to a
-    single asset revision, which no metric or log line can establish alone.
+
+def all_traces_by_asset_version(version: str) -> str:
+    """All traces carrying a specific asset revision, regardless of status.
+
+    This is the DISCONFIRMING query. Use it to prove whether an asset is globally
+    broken or only broken on a specific subset of nodes.
     """
     return (
         f'{{resource.service.name="{SERVICE_NAME}" '
@@ -165,4 +197,10 @@ Ready-made queries you should prefer over composing your own:
   fatal log lines      {fatal_render_errors()}
   asset errors         {asset_resolution_errors()}
   failing spans        {failing_asset_fetch_spans()}
+  all traces by asset  {all_traces_by_asset_version("vX")}
+  mean render seconds  {mean_render_seconds()}
+  total node count     {total_node_count()}
+
+Important Constant:
+  GPU_COST_PER_SECOND = {GPU_COST_PER_SECOND}
 """
