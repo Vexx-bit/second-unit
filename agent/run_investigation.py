@@ -1,12 +1,29 @@
 import asyncio
 import json
 import sys
+import os
+import urllib.request
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 from second_unit.agent import root_agent
 
 
 async def main():
+    url = os.getenv("GRAFANA_URL", "").rstrip("/")
+    token = os.getenv("GRAFANA_SERVICE_ACCOUNT_TOKEN", "")
+    if url and token:
+        query_url = f"{url}/api/datasources/uid/grafanacloud-prom/resources/api/v1/query?query=render_queue_depth"
+        req = urllib.request.Request(query_url)
+        req.add_header("Authorization", f"Bearer {token}")
+        try:
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+                if not data.get("data", {}).get("result"):
+                    print("TELEMETRY STALE — start telemetry-sim first, then re-run.", flush=True)
+                    sys.exit(1)
+        except Exception as e:
+            print(f"Failed to check telemetry freshness: {e}", flush=True)
+
     runner = InMemoryRunner(agent=root_agent, app_name="second_unit")
     session = await runner.session_service.create_session(
         app_name=runner.app_name,

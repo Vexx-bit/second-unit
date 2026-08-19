@@ -50,6 +50,8 @@ You investigate through the Grafana MCP server. Constraints:
 - Report only what the query results show. If evidence is thin, say so and say
   what is missing. A confident wrong root cause is worse than an honest partial
   finding, because a human will act on it at 6am.
+- An empty result set is not evidence. If a query intended to disconfirm returns nothing, you must first prove the query is capable of returning anything by running a control query — the same selector with the discriminating predicate removed. If the control also returns nothing, report the query as inconclusive. Never convert an empty result into a positive finding.
+- Never propose a mechanism you have not queried. If you want to explain why a population is unaffected, query it. If you cannot, list it under What I Could Not Determine.
 
 {queries.QUERY_REFERENCE}
 """
@@ -116,19 +118,14 @@ visible in any single signal — it only appears when you cross them.
 Steps, in order:
 1. Query Loki for FATAL render log lines. Read the actual error text.
 2. Query Loki for asset resolution errors specifically.
-3. Count error lines by node. Cross-check against the affected nodes Triage
-   identified. If the two sets disagree, say so — that disagreement is itself a
-   finding.
+3. Count error lines by node. Note: `shot` is structured metadata, not a stream label. Call `list_loki_label_values` before adding any label to a stream selector, and use `error_lines_by_node()` from queries.py unmodified. If the cross-check query fails, report the cross-check as NOT PERFORMED rather than asserting the node sets match.
 4. Query Loki for asset publish events near the incident start time. A change
    that precedes the failures is a prime suspect.
 5. Query Tempo for error traces on the render-farm service.
 6. Inspect a failing trace in detail. Identify WHICH SPAN fails. Read that
    span's attributes carefully — particularly any asset version.
-7. If you identify a suspect asset version, query traces carrying that version
-   WITH AND WITHOUT filtering for errors (use `all traces by asset` for the disconfirming query).
-   This is critical to establish the blast radius: if the asset succeeds on some
-   nodes, it is not globally broken. The issue is scoped to the nodes where it fails
-   (e.g., stale cache or broken mount on those specific nodes).
+7. If you identify a suspect asset version, you MUST run a disconfirming query using exactly `all traces by asset`. Do not add status=ok, status!=error, or any status predicate to the disconfirming query. Its entire purpose is to see both outcomes.
+   After identifying the affected node set, pick one node NOT in that set and query traces for it with the suspect asset version (using `traces by node/asset`). If it returns traces, the asset is NOT globally broken and the root cause must be scoped to the affected nodes.
 
 Return:
 - The exact error message, quoted verbatim
@@ -176,13 +173,14 @@ Steps:
 2. Query mean render seconds and total node count using `query_prometheus`. 
 3. Compute the rework and schedule impact as follows:
    rework = failed_frames × mean_render_seconds × GPU_COST_PER_SECOND
-   schedule impact = (failed_frames × mean_render_seconds) / 3600 machine-hours (Label it "machine-hours" explicitly — it is not wall-clock delay).
+   schedule impact = (failed_frames × mean_render_seconds) / 3600 (Label it "machine-hours" explicitly — it is not wall-clock delay).
+   estimated wall-clock slip = machine-hours / total node count.
 4. Write a Grafana annotation recording the finding using `create_annotation` (with dashboardUid="second-unit-farm", tags=["second-unit", "root-cause"], text="...", time=...). Tag it `second-unit` and
    `root-cause` — the dashboard has an annotation query on the `second-unit` tag,
    so this makes the finding appear on every time-series panel. Keep the
    annotation text to one or two sentences naming the root cause and the blast
    radius. Set the time to the incident start where known.
-5. Produce the written report.
+5. Produce the written report. If a query for a value returns no data, write "unavailable" in the report. Do not substitute an inferred or remembered figure.
 
 Report format:
 
@@ -190,7 +188,7 @@ Report format:
 **Root cause:** one sentence, specific. Name the asset version if identified. State if it is globally broken or scoped to specific nodes.
 **Blast radius:** frames failed, nodes affected, of how many total
 **Cost:** Total GPU spend across the window, and **Rework spend**. Never describe total spend as wasted.
-**Schedule Impact:** Label it "machine-hours" explicitly.
+**Schedule Impact:** Machine-hours AND estimated wall-clock slip. Label them distinctly.
 **Evidence:** three bullets — what metrics showed, what logs showed, what traces
 showed. Make clear that the conclusion required all three.
 **Recommended action:** what a human should do now, concretely. Which frames to

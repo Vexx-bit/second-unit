@@ -172,6 +172,14 @@ def all_traces_by_asset_version(version: str) -> str:
     )
 
 
+def traces_by_node_and_asset_version(node: str, version: str) -> str:
+    """Traces for a specific node and asset version."""
+    return (
+        f'{{resource.service.name="{SERVICE_NAME}" '
+        f'&& span.vfx.node="{node}" && span.asset.version="{version}"}}'
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Reference block injected into agent instructions
 # --------------------------------------------------------------------------- #
@@ -198,6 +206,7 @@ Ready-made queries you should prefer over composing your own:
   asset errors         {asset_resolution_errors()}
   failing spans        {failing_asset_fetch_spans()}
   all traces by asset  {all_traces_by_asset_version("vX")}
+  traces by node/asset {traces_by_node_and_asset_version("<node>", "vX")}
   mean render seconds  {mean_render_seconds()}
   total node count     {total_node_count()}
 
