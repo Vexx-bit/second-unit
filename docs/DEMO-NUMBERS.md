@@ -69,3 +69,14 @@ look *idle*, at 4–18%, while healthy ones sit at 82–99%. A dashboard glance
 suggests those 14 nodes are underused and available for more work. They are
 actually burning through the queue failing instantly. That is precisely the kind
 of cross-signal read a human skims past at 6am and an agent does not.
+
+## Observed live run (non-canonical)
+
+During the interactive 15-minute live run (`--duration 900 --inject-incident --incident-at 120`), the investigation was triggered after 7 minutes. Because the Prometheus queries use a 30-minute lookback window (`increase(...[30m])`), the metrics aggregated failures from the preceding 10-minute run as well. 
+
+The reported figures for that specific live observation were:
+*   **Frames failed:** 1,565 (sum of both recent sim runs)
+*   **Nodes affected:** 14 of 40 (consistent blast radius)
+*   **Total GPU spend:** $7,873.06
+*   **Rework cost:** $1,875.33
+*   **Schedule impact:** 127.1 machine-hours (estimated 3.18 hours wall-clock slip)
