@@ -235,7 +235,6 @@ def render_frame(
                 fetch.set_attribute("error.type", "AssetResolutionError")
                 span.set_status(Status(StatusCode.ERROR, "asset_fetch failed"))
 
-                duration = time.monotonic() - started
                 state.frames_failed += 1
 
                 log.error(
@@ -248,10 +247,12 @@ def render_frame(
                 inst.frames_completed.add(
                     1, {"shot": SHOT, "node": node, "status": "failed"}
                 )
-                inst.frame_duration.record(duration, {"shot": SHOT, "status": "failed"})
+                # Simulated fail-fast duration (~250ms asset resolution before aborting), NOT wall-clock.
+                failed_seconds = rng.uniform(0.15, 0.45)
+                inst.frame_duration.record(failed_seconds, {"shot": SHOT, "status": "failed"})
                 # Failing fast still costs a little GPU time.
                 inst.cost.add(
-                    duration * GPU_COST_PER_SECOND, {"shot": SHOT, "node": node}
+                    failed_seconds * GPU_COST_PER_SECOND, {"shot": SHOT, "node": node}
                 )
                 # A node that keeps failing sits mostly idle. This is the
                 # counter-intuitive signal: utilization DROPS during the
@@ -263,7 +264,9 @@ def render_frame(
 
         # --- the expensive part -------------------------------------------- #
         with tracer.start_as_current_span("rasterize") as raster:
-            gpu_seconds = rng.uniform(0.8, 2.4)
+            # Simulated GPU render seconds per frame, 3-7 min, typical for 4K
+            # path-traced VFX. NOT wall-clock — the sim compresses time.
+            gpu_seconds = rng.uniform(180, 420)
             raster.set_attribute("gpu.seconds", round(gpu_seconds, 3))
             time.sleep(rng.uniform(0.02, 0.06))
 
@@ -285,7 +288,7 @@ def render_frame(
             extra={**base_attrs, "asset_version": asset_version},
         )
         inst.frames_completed.add(1, {"shot": SHOT, "node": node, "status": "succeeded"})
-        inst.frame_duration.record(duration, {"shot": SHOT, "status": "succeeded"})
+        inst.frame_duration.record(gpu_seconds, {"shot": SHOT, "status": "succeeded"})
         inst.cost.add(gpu_seconds * GPU_COST_PER_SECOND, {"shot": SHOT, "node": node})
         inst.gpu_utilization.set(rng.uniform(82, 99), {"node": node, "shot": SHOT})
 

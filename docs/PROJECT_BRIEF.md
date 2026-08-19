@@ -124,7 +124,7 @@ broken texture path.
 
 | Signal | What it reveals | What it does NOT reveal |
 | --- | --- | --- |
-| Metrics (Mimir) | ~200 frames failed; 14 of 40 nodes affected; GPU utilization *dropped* on those nodes; wasted USD accumulating | why |
+| Metrics (Mimir) | 750 frames failed; 14 of 40 nodes affected; GPU utilization *dropped* on those nodes; $922.50 rework cost accumulating | why |
 | Logs (Loki) | `FATAL: texture not found: /assets/SH042_beach_dusk/tex/skin_albedo.v7.exr` | which change introduced it |
 | Traces (Tempo) | every failing trace shares a broken `asset_fetch` span carrying `asset.version=v7` | the blast radius |
 
@@ -171,7 +171,7 @@ The project is complete when every box is checked.
 - [ ] The agent writes a real annotation into Grafana (a visible side effect —
       proof it acts, not just reads)
 - [ ] The agent correctly identifies `asset.version=v7` as root cause, and states
-      blast radius (~200 frames, 14 nodes) and wasted spend
+      blast radius (750 frames, 14 nodes) and rework spend ($922.50)
 - [ ] The agent is itself instrumented into Grafana Cloud AI Observability —
       token usage, latency, tool calls per investigation
 - [ ] `web/` streams the investigation live and embeds the Grafana panels
