@@ -371,8 +371,8 @@ def main() -> int:
 
             frame += 1
             if frame > TOTAL_FRAMES:
-                log.info("all frames dispatched, looping for continuous data")
-                frame = 1
+                log.info("all %d frames dispatched, render complete", TOTAL_FRAMES)
+                break
 
             time.sleep(max(0.0, 0.05 / args.speed))
     finally:

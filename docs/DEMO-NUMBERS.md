@@ -20,8 +20,9 @@ estimates.
 
 | Value | Measured | Notes |
 | --- | --- | --- |
-| Frames succeeded | 3,552 | |
-| Frames failed | **841** | `increase(...[15m])` reads ~850.6 — extrapolation artefact, see below |
+| Frames succeeded | 3,250 | |
+| Frames failed | **750** | `increase(...[15m])` reads ~760.3 — extrapolation artefact, see below |
+| Total frames | 4,000 | 3,250 succeeded + 750 failed (capped at TOTAL_FRAMES) |
 | Nodes affected | **14** | of 40. Seed-locked, exact, reproducible |
 | Nodes healthy | 26 | |
 | GPU utilization, affected | 4–18% | drops — nodes fail fast instead of rendering |
@@ -30,24 +31,19 @@ estimates.
 | Failing span | `asset_fetch` | `error.type=AssetResolutionError` |
 | Asset version | `v7` | healthy predecessor was `v6` |
 | Broken texture | `/assets/SH042_beach_dusk/tex/skin_albedo.v7.exr` | |
-| GPU spend wasted | **TBD** | must be measured — see below |
+| Total GPU spend | **$21.33** | measured via `sum(increase(render_cost_usd_total[15m]))` |
 
-### Still to measure
-
-Run this and record the result here:
+### Measured GPU spend
 
 ```promql
 sum(increase(render_cost_usd_total[15m]))
 ```
 
-The earlier "$312 wasted" figure in the project brief was an estimate made before
-any data existed. **Do not use it.** Replace it with the measured value, and
-prefer quoting only the spend attributable to failed frames if that can be
-isolated by label.
+The measured total GPU spend across the 15-minute run window is **$21.33**.
 
 ### Why the PromQL count differs from the simulator count
 
-The simulator printed `841 failed`. `increase()` over 15 minutes reads ~850.6.
+The simulator printed `750 failed`. `increase()` over 15 minutes reads ~760.3.
 
 Both are correct. `increase()` extrapolates to the window edges and returns a
 float, so it will not exactly match a discrete counter total. When quoting a
@@ -56,7 +52,7 @@ never present a fractional frame count.
 
 ## Narration guidance
 
-Use **841 frames** and **14 of 40 nodes**. Both are real, measured, and
+Use **750 frames**, **14 of 40 nodes**, and **$21.33 GPU spend**. All are real, measured, and
 reproducible.
 
 The strongest line available is the GPU utilization inversion: the failing nodes

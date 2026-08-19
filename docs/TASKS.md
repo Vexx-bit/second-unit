@@ -33,10 +33,10 @@ Deviations: <anything you did differently, and why>
 | --- | --- |
 | TASK-01 Fix the Grafana stack URL | ✅ done |
 | TASK-02 Re-run simulator, verify metric names | ✅ done |
-| TASK-03 Import the render farm dashboard | in progress |
+| TASK-03 Import the render farm dashboard | ✅ done |
 | TASK-04 Create the alert rule | ✅ done — uid `dfvmtt22674e8b` |
 | TASK-05 Verify the incident end to end | ✅ done — see `docs/DEMO-NUMBERS.md` |
-| TASK-05b Cap the run at TOTAL_FRAMES | open |
+| TASK-05b Cap the run at TOTAL_FRAMES | ✅ done |
 
 **Confirmed stack values** — do not re-derive:
 
@@ -91,13 +91,13 @@ tooling sets the wrong precedent for the agent code.
 
 **Acceptance criteria**
 
-- [ ] Dashboard `Second Unit — Render Farm` exists, uid `second-unit-farm`
-- [ ] Confirmed by a dashboard search/get MCP call, not by assumption
-- [ ] Over a range covering the TASK-05 incident, these panels show data: Frame
+- [x] Dashboard `Second Unit — Render Farm` exists, uid `second-unit-farm`
+- [x] Confirmed by a dashboard search/get MCP call, not by assumption
+- [x] Over a range covering the TASK-05 incident, these panels show data: Frame
       outcomes, Failures by node, GPU utilization by node, Frame duration
       p50/p95, Queue depth
-- [ ] The Loki panel ("Render farm errors") returns the `texture not found` lines
-- [ ] Report which panels are empty and why, if any
+- [x] The Loki panel ("Render farm errors") returns the `texture not found` lines
+- [x] Report which panels are empty and why, if any
 
 ---
 
@@ -134,13 +134,13 @@ This matters for two reasons:
 
 **Acceptance criteria**
 
-- [ ] Root cause of the overshoot reported in prose before the fix
-- [ ] `succeeded + failed <= 4000` on a full run
-- [ ] `min(render_queue_depth) >= 0` and it decreases monotonically toward zero
-- [ ] Affected node count still exactly **14**
-- [ ] Re-run the canonical demo command and record the new numbers in
+- [x] Root cause of the overshoot reported in prose before the fix
+- [x] `succeeded + failed <= 4000` on a full run
+- [x] `min(render_queue_depth) >= 0` and it decreases monotonically toward zero
+- [x] Affected node count still exactly **14**
+- [x] Re-run the canonical demo command and record the new numbers in
       `docs/DEMO-NUMBERS.md`, replacing the current ones
-- [ ] Also record the measured `sum(increase(render_cost_usd_total[15m]))` — that
+- [x] Also record the measured `sum(increase(render_cost_usd_total[15m]))` — that
       value is currently TBD and the demo narration needs it
 
 ---
