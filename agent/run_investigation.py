@@ -1,14 +1,50 @@
 import asyncio
 import json
+import subprocess
 import sys
 import os
 import urllib.request
+from pathlib import Path
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 from second_unit.agent import root_agent
 
 
+def print_code_version() -> None:
+    """State which commit this run is executing.
+
+    Several investigations were debugged as agent reasoning failures when the
+    real cause was a working tree behind origin/main -- the fix under test had
+    been pushed, but the run could not have used it. Inferring the code version
+    from behaviour is slow and ambiguous. Print it instead.
+    """
+    repo = Path(__file__).resolve().parent.parent
+    try:
+        head = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        ).stdout.strip()
+        dirty = subprocess.run(
+            ["git", "-C", str(repo), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        ).stdout.strip()
+    except Exception as exc:
+        print(f"Could not determine the code version: {exc}", flush=True)
+        return
+
+    suffix = " — WARNING: uncommitted local changes present" if dirty else ""
+    print(f"Running commit {head}{suffix}", flush=True)
+
+
 async def main():
+    print_code_version()
+
     url = os.getenv("GRAFANA_URL", "").rstrip("/")
     token = os.getenv("GRAFANA_SERVICE_ACCOUNT_TOKEN", "")
     if url and token:
