@@ -4,6 +4,9 @@
 !.env.example
 *service-account*.json
 *credentials*.json
+*-key.json
+gcp-key.json
+*.pem
 
 # IDE agent MCP configs — these contain plaintext tokens
 .cursor/mcp.json

@@ -33,17 +33,22 @@ Deviations: <anything you did differently, and why>
 | --- | --- |
 | TASK-01 Fix the Grafana stack URL | ✅ done |
 | TASK-02 Re-run simulator, verify metric names | ✅ done |
-| TASK-03 Import the render farm dashboard | in progress |
+| TASK-03 Import the render farm dashboard | ✅ done |
 | TASK-04 Create the alert rule | ✅ done — uid `dfvmtt22674e8b` |
 | TASK-05 Verify the incident end to end | ✅ done — see `docs/DEMO-NUMBERS.md` |
-| TASK-05b Cap the run at TOTAL_FRAMES | open |
+| TASK-05b Cap the run at TOTAL_FRAMES | ✅ done |
+| TASK-05c Separate simulated render time from wall-clock | ✅ done |
+| TASK-05d Frame-based deterministic incident onset | ✅ done (3252/748/14) |
+| TASK-05e Guard incident_frame formula | ✅ done |
+| TASK-06 ADK Agent Architecture & Tools | ✅ done |
+| TASK-07 Execute live incident investigation | ✅ done |
 
 **Confirmed stack values** — do not re-derive:
 
 - Stack: `https://violetheron2036.grafana.net`
-- Metrics: `grafanacloud-violetheron2036-prom`
-- Logs: `grafanacloud-violetheron2036-logs`
-- Traces: `grafanacloud-violetheron2036-traces`
+- Metrics: `grafanacloud-prom`
+- Logs: `grafanacloud-logs`
+- Traces: `grafanacloud-traces`
 
 **Frozen metric names** — verified against the live stack. Changing any of these
 now requires updating `telemetry-sim/farm.py`, the dashboard JSON, and
@@ -81,8 +86,8 @@ human and move on:
 > 2. **Dashboards → New → Import**
 > 3. Paste the contents of `infra/grafana/dashboards/render-farm.json`
 > 4. **Load**
-> 5. Map: **Metrics** → `grafanacloud-violetheron2036-prom`,
->    **Logs** → `grafanacloud-violetheron2036-logs`
+> 5. Map: **Metrics** → `grafanacloud-prom`,
+>    **Logs** → `grafanacloud-logs`
 > 6. **Import**
 
 Do not reach the Grafana HTTP API directly with the service account token as a
@@ -91,13 +96,13 @@ tooling sets the wrong precedent for the agent code.
 
 **Acceptance criteria**
 
-- [ ] Dashboard `Second Unit — Render Farm` exists, uid `second-unit-farm`
-- [ ] Confirmed by a dashboard search/get MCP call, not by assumption
-- [ ] Over a range covering the TASK-05 incident, these panels show data: Frame
+- [x] Dashboard `Second Unit — Render Farm` exists, uid `second-unit-farm`
+- [x] Confirmed by a dashboard search/get MCP call, not by assumption
+- [x] Over a range covering the TASK-05 incident, these panels show data: Frame
       outcomes, Failures by node, GPU utilization by node, Frame duration
       p50/p95, Queue depth
-- [ ] The Loki panel ("Render farm errors") returns the `texture not found` lines
-- [ ] Report which panels are empty and why, if any
+- [x] The Loki panel ("Render farm errors") returns the `texture not found` lines
+- [x] Report which panels are empty and why, if any
 
 ---
 
@@ -134,14 +139,42 @@ This matters for two reasons:
 
 **Acceptance criteria**
 
-- [ ] Root cause of the overshoot reported in prose before the fix
-- [ ] `succeeded + failed <= 4000` on a full run
-- [ ] `min(render_queue_depth) >= 0` and it decreases monotonically toward zero
-- [ ] Affected node count still exactly **14**
-- [ ] Re-run the canonical demo command and record the new numbers in
+- [x] Root cause of the overshoot reported in prose before the fix
+- [x] `succeeded + failed <= 4000` on a full run
+- [x] `min(render_queue_depth) >= 0` and it decreases monotonically toward zero
+- [x] Affected node count still exactly **14**
+- [x] Re-run the canonical demo command and record the new numbers in
       `docs/DEMO-NUMBERS.md`, replacing the current ones
-- [ ] Also record the measured `sum(increase(render_cost_usd_total[15m]))` — that
+- [x] Also record the measured `sum(increase(render_cost_usd_total[15m]))` — that
       value is currently TBD and the demo narration needs it
+
+---
+
+### TASK-05c — Separate simulated render time from wall-clock
+
+**Bug surfaced by cost breakdown:** In `render_frame()`, the success path computed
+`gpu_seconds` for cost but recorded `duration` (wall-clock, ~0.1s) into the
+`frame_duration` histogram.
+
+**Do:**
+1. Raise simulated render time to realistic 4K path-traced values: `gpu_seconds = rng.uniform(180, 420)` (mean 300s).
+2. Record `gpu_seconds` into the `frame_duration` histogram on success.
+3. Record realistic simulated fail-fast duration (`rng.uniform(0.15, 0.45)`) on the failed path.
+4. Keep wall-clock runtime at ~10 min for `--duration 600`.
+5. Measure p95 duration, batch GPU spend, rework cost, and schedule impact.
+
+**Acceptance criteria**
+
+- [x] Affected node count still EXACTLY 14
+- [x] `succeeded + failed <= 4000` (3,250 succeeded, 750 failed)
+- [x] Wall-clock runtime ~10 min for `--duration 600`
+- [x] `histogram_quantile(0.95, ...)` returns value in low hundreds of seconds (~476s)
+- [x] `sum(increase(render_cost_usd_total[15m]))` in low thousands of USD ($3,949.68)
+- [x] Rework cost computed and recorded: 750 frames × 300s × $0.0041/s = $922.50
+- [x] Schedule impact computed and recorded: (750 frames × 300s) / 40 nodes = 1.56 hours (~1h 34m)
+- [x] Updated `docs/DEMO-NUMBERS.md` with all new measured values
+- [x] Updated `docs/PROJECT_BRIEF.md` with measured rework figure ($922.50)
+- [x] Pushed to `sprint/1-telemetry-dashboard` updating PR #1
 
 ---
 

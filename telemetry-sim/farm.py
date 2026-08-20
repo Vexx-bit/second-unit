@@ -235,7 +235,6 @@ def render_frame(
                 fetch.set_attribute("error.type", "AssetResolutionError")
                 span.set_status(Status(StatusCode.ERROR, "asset_fetch failed"))
 
-                duration = time.monotonic() - started
                 state.frames_failed += 1
 
                 log.error(
@@ -248,10 +247,12 @@ def render_frame(
                 inst.frames_completed.add(
                     1, {"shot": SHOT, "node": node, "status": "failed"}
                 )
-                inst.frame_duration.record(duration, {"shot": SHOT, "status": "failed"})
+                # Simulated fail-fast duration (~250ms asset resolution before aborting), NOT wall-clock.
+                failed_seconds = rng.uniform(0.15, 0.45)
+                inst.frame_duration.record(failed_seconds, {"shot": SHOT, "status": "failed"})
                 # Failing fast still costs a little GPU time.
                 inst.cost.add(
-                    duration * GPU_COST_PER_SECOND, {"shot": SHOT, "node": node}
+                    failed_seconds * GPU_COST_PER_SECOND, {"shot": SHOT, "node": node}
                 )
                 # A node that keeps failing sits mostly idle. This is the
                 # counter-intuitive signal: utilization DROPS during the
@@ -263,7 +264,9 @@ def render_frame(
 
         # --- the expensive part -------------------------------------------- #
         with tracer.start_as_current_span("rasterize") as raster:
-            gpu_seconds = rng.uniform(0.8, 2.4)
+            # Simulated GPU render seconds per frame, 3-7 min, typical for 4K
+            # path-traced VFX. NOT wall-clock — the sim compresses time.
+            gpu_seconds = rng.uniform(180, 420)
             raster.set_attribute("gpu.seconds", round(gpu_seconds, 3))
             time.sleep(rng.uniform(0.02, 0.06))
 
@@ -278,14 +281,14 @@ def render_frame(
         state.frames_done += 1
 
         log.info(
-            "frame %d rendered on %s in %.2fs",
+            "frame %d rendered on %s in %.1fs (simulated)",
             frame,
             node,
-            duration,
+            gpu_seconds,
             extra={**base_attrs, "asset_version": asset_version},
         )
         inst.frames_completed.add(1, {"shot": SHOT, "node": node, "status": "succeeded"})
-        inst.frame_duration.record(duration, {"shot": SHOT, "status": "succeeded"})
+        inst.frame_duration.record(gpu_seconds, {"shot": SHOT, "status": "succeeded"})
         inst.cost.add(gpu_seconds * GPU_COST_PER_SECOND, {"shot": SHOT, "node": node})
         inst.gpu_utilization.set(rng.uniform(82, 99), {"node": node, "shot": SHOT})
 
@@ -345,6 +348,26 @@ def main() -> int:
 
     started = time.monotonic()
     frame = 1
+    # Deterministic incident trigger: convert the configured seconds threshold
+    # to an exact frame index based on the known total frames and duration.
+    # At default --duration 600 and TOTAL_FRAMES 4000, 120s corresponds to
+    # frame 801 (120/600 * 4000 + 1).
+    incident_frame = max(1, int((args.incident_at / args.duration) * TOTAL_FRAMES) + 1)
+    log.info(
+        "incident onset: frame %d of %d (from --incident-at %d --duration %d)",
+        incident_frame,
+        TOTAL_FRAMES,
+        args.incident_at,
+        args.duration,
+    )
+    if args.duration != 600 or args.incident_at != 120:
+        log.warning(
+            "non-canonical parameters (duration=%d, incident_at=%d). "
+            "Numbers in docs/DEMO-NUMBERS.md apply only to canonical command: "
+            "--duration 600 --incident-at 120",
+            args.duration,
+            args.incident_at,
+        )
 
     try:
         while not stopping:
@@ -355,7 +378,7 @@ def main() -> int:
             if (
                 args.inject_incident
                 and not state.incident_active
-                and elapsed >= args.incident_at
+                and frame >= incident_frame
             ):
                 state.incident_active = True
                 log.error(
@@ -371,8 +394,8 @@ def main() -> int:
 
             frame += 1
             if frame > TOTAL_FRAMES:
-                log.info("all frames dispatched, looping for continuous data")
-                frame = 1
+                log.info("all %d frames dispatched, render complete", TOTAL_FRAMES)
+                break
 
             time.sleep(max(0.0, 0.05 / args.speed))
     finally:
