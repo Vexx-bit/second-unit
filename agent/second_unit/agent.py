@@ -28,6 +28,7 @@ from .mcp_tools import (
     TRIAGE_TOOLS,
     build_grafana_toolset,
 )
+from .requeue import propose_requeue
 from .telemetry import init_agent_telemetry
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
@@ -98,7 +99,8 @@ evidence that the nodes are erroring out early.
 Return a structured summary:
 - Frames failed, frames succeeded, failure ratio
 - Affected nodes: count, and the node names
-- Unaffected node count for contrast
+- Unaffected node count for contrast, and the names of the healthy nodes — the
+  Report stage needs them to place re-queued work
 - GPU spend over the window and queue depth
 - GPU utilization on affected vs unaffected nodes
 - Which alert is firing
@@ -169,6 +171,11 @@ Steps, in order:
    span's attributes carefully — particularly any asset version.
 7. If you identify a suspect asset version, you MUST run a disconfirming query using exactly `all traces by asset`. Do not add status=ok, status!=error, or any status predicate to the disconfirming query. Its entire purpose is to see both outcomes.
    After identifying the affected node set, pick one node NOT in that set and query traces for it with the suspect asset version (using `traces by node/asset`). If it returns traces, the asset is NOT globally broken and the root cause must be scoped to the affected nodes.
+8. Record the FRAME NUMBERS from the FATAL log lines you read. Each line names the
+   frame and the node it failed on. Pass them through verbatim — the Report stage
+   builds the re-queue plan from them, and an invented frame number costs real GPU
+   time when a human submits it. If the log query hit its line limit, say so, and
+   say that the frame list is therefore a sample rather than the full set.
 
 Return:
 - The bounded window you used, stated first
@@ -176,6 +183,7 @@ Return:
 - The failing span name and its attributes
 - The suspect asset version, if any
 - Whether the log-derived node set matches the metric-derived node set (list both sets explicitly)
+- The list of failed frame numbers you observed, and whether it is complete or a sample
 - A timeline: change published, first failure, and the interval between them, with
   the metric-derived onset alongside for comparison. If you include an alert in the timeline, you MUST query alerting_manage_rules for lastEvaluation and cite it, otherwise omit the alert from the timeline.
 - Your root cause hypothesis, with a confidence level and the specific evidence
@@ -208,8 +216,8 @@ Triage:
 Correlation:
 {{correlation_findings}}
 
-Your job is to produce the report a VFX supervisor reads at 6am, and to record
-the finding in Grafana so it is visible on the dashboard.
+Your job is to produce the report a VFX supervisor reads at 6am, to propose the
+recovery, and to record the finding in Grafana so it is visible on the dashboard.
 
 Steps:
 1. Verify the dashboard exists by fetching it with `get_dashboard_by_uid` (uid="second-unit-farm").
@@ -218,7 +226,20 @@ Steps:
    rework = failed_frames × mean_render_seconds × GPU_COST_PER_SECOND
    schedule impact = (failed_frames × mean_render_seconds) / 3600 (Label it "machine-hours" explicitly — it is not wall-clock delay).
    estimated wall-clock slip = machine-hours / total node count.
-4. Write a Grafana annotation recording the finding using `create_annotation` (with dashboardUid="second-unit-farm", tags=["second-unit", "root-cause"], text="...", time=...). Tag it `second-unit` and
+4. Build the recovery plan by calling `propose_requeue`. Pass the frame numbers
+   Correlate read from the FATAL log lines, Triage's failed frame count as
+   `expected_failed_frame_count`, the affected node names, the healthy node names,
+   and the mean render seconds you just queried. Do not compute this plan yourself
+   and do not extend the frame list beyond the numbers actually observed in logs.
+   The result carries a `coverage` block. Loki returns at most `limit` log lines,
+   so the observed frames are usually a SAMPLE of those that failed. If
+   `coverage.complete` is false you MUST present the plan as covering the observed
+   frames only, and quote `coverage.observed` and `coverage.expected`. Never
+   describe a partial list as the full re-queue set — a supervisor who trusts a
+   short list ships an incomplete shot.
+   If it returns `no_frames_supplied`, report the re-queue plan as unavailable and
+   say why. Do not estimate a frame list from the failure count.
+5. Write a Grafana annotation recording the finding using `create_annotation` (with dashboardUid="second-unit-farm", tags=["second-unit", "root-cause"], text="...", time=...). Tag it `second-unit` and
    `root-cause` — the dashboard has an annotation query on the `second-unit` tag,
    so this makes the finding appear on every time-series panel. Keep the
    annotation text to one or two sentences naming the root cause and the blast
@@ -229,7 +250,7 @@ Steps:
    pulled from an unbounded query — an annotation placed outside the incident
    window is worse than none, because it renders on a blank part of the dashboard
    and misdates the finding for anyone reading it later.
-5. Produce the written report. If a query for a value returns no data, write "unavailable" in the report. Do not substitute an inferred or remembered figure.
+6. Produce the written report. If a query for a value returns no data, write "unavailable" in the report. Do not substitute an inferred or remembered figure.
 
 Report format:
 
@@ -240,8 +261,13 @@ Report format:
 **Schedule Impact:** Machine-hours AND estimated wall-clock slip. Label them distinctly.
 **Evidence:** three bullets — what metrics showed, what logs showed, what traces
 showed. Make clear that the conclusion required all three.
-**Recommended action:** what a human should do now, concretely. Which frames to
-re-queue, and what to fix first.
+**Recovery plan:** from `propose_requeue`. Give the frame ranges to re-submit, how
+many healthy nodes they spread across, which nodes to hold out of rotation and
+why, the preconditions that must be satisfied first, and the estimated cost and
+wall-clock time to recover. State plainly whether the frame list is complete or a
+sample, quoting the coverage numbers.
+**Recommended action:** what a human should do now, concretely — what to fix
+first, then the re-queue.
 **Confidence:** high / medium / low, and why.
 **Unresolved:** anything you could not determine.
 
@@ -253,7 +279,7 @@ Confirm whether the annotation write succeeded, and state the epoch time you
 wrote it at. If it failed, say so explicitly rather than implying the record was
 created — someone will look for it.
 """,
-    tools=[build_grafana_toolset(tool_filter=REPORT_TOOLS)],
+    tools=[build_grafana_toolset(tool_filter=REPORT_TOOLS), propose_requeue],
     output_key="triage_report",
 )
 
@@ -266,7 +292,8 @@ root_agent = SequentialAgent(
     description=(
         "Investigates VFX render farm incidents end to end: scopes the failure "
         "from metrics, finds the root cause by correlating logs and traces, then "
-        "reports it and records the finding in Grafana."
+        "reports it, proposes a frame re-queue plan, and records the finding in "
+        "Grafana."
     ),
     sub_agents=[triage_agent, correlate_agent, report_agent],
 )
