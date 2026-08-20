@@ -54,6 +54,17 @@ You investigate through the Grafana MCP server. Constraints:
   invent one that does not exist. The same applies to log line filters: use the
   selectors below verbatim. A filter you invented that matches nothing looks
   exactly like missing data, and you will report absence where there was none.
+- LOKI STREAM SELECTORS ACCEPT ONLY FOUR LABELS: service_name, service_namespace,
+  service_instance_id, deployment_environment_name. Everything else these log
+  lines carry — shot, node, frame, asset_version, trace_id, span_id, severity_text,
+  and the code_* fields — is structuredMetadata, NOT an indexed stream label.
+  Putting any of them inside the {{}} of a selector matches ZERO streams and
+  returns an empty result with no error, which is indistinguishable from the event
+  never having happened. On a previous run the selector
+  {{service_name="render-farm", shot="SH042_beach_dusk"}} returned nothing and the
+  stage reported the asset publish event as missing while it sat 173 milliseconds
+  inside the search window. Keep the selector to service_name alone and
+  discriminate with line filters after it.
 - Resolve datasource UIDs by listing datasources. You MUST use the exact string from the `uid` field (e.g., `grafanacloud-prom`, `grafanacloud-logs`), NOT the `name` field. Do not hardcode them.
 - Report only what the query results show. If evidence is thin, say so and say
   what is missing. A confident wrong root cause is worse than an honest partial
@@ -100,6 +111,11 @@ Steps, in order:
    minutes, and take the RAW EPOCH of the FIRST non-zero sample. Pass that raw
    epoch to `epoch_to_rfc3339` and report the `rfc3339` value it returns
    alongside the raw epoch. Do not convert it yourself.
+   Say explicitly that this is the METRIC onset and that it is an upper bound: it
+   is the first non-zero sample of a range query, so it lags the true first failed
+   frame by up to one step interval. The Correlate stage will find the exact first
+   failure in the logs, and that value will be EARLIER than yours. That is
+   expected, not a discrepancy.
    If the tool returns `plausible: false`, the sample predates this run: re-run
    the range query with explicit startTime and endTime covering the last 30
    minutes and take the onset from that. The next stage bounds every log and
@@ -130,7 +146,8 @@ Return a structured summary:
 - GPU utilization on affected vs unaffected nodes
 - Which alert is firing
 - ONSET: the raw epoch AND the `epoch_to_rfc3339` output for the first non-zero
-  failure sample, and whether the window contains more than one distinct run
+  failure sample, labelled as the metric onset, and whether the window contains
+  more than one distinct run
 - Whether the render was still in flight when you queried (queue depth above
   zero and falling), because every count you reported is then a partial
 
@@ -173,6 +190,10 @@ BEFORE YOU RUN ANY QUERY — bound your window. This is mandatory and comes firs
   of the simulator. If that happens, two unrelated incidents are silently merged
   into one result set and you will report a false onset, a false trigger event and
   inflated line counts, with no error to warn you. Never rely on the default.
+- Pass `startRfc3339` and leave `endRfc3339` OFF unless you have a specific reason
+  to cap the end. Supplying an end bound derived from another query result is how
+  you exclude the very event you are looking for. Supplying endRfc3339 without
+  startRfc3339 is rejected by the tool outright.
 - startRfc3339 and endRfc3339 take LITERAL RFC3339 timestamps. Relative
   expressions such as "now-30m" are rejected by the tool.
 - If Triage reported more than one burst, bound to the most recent burst only.
@@ -195,24 +216,37 @@ Steps, in order:
    Note that this query carries its own [30m] range inside the LogQL. If that
    30 minute range reaches further back than your bounded window, say so and treat
    the counts as an upper bound rather than a measurement of this incident.
-4. Query Loki for asset publish events using `asset_publish_events()` from
-   queries.py VERBATIM. Do not compose your own line filter for this. The log
-   line is lowercase and reads `asset <version> published for <shot>`; a filter
-   such as "Asset publish" matches nothing, and you will report the publish time
-   as undeterminable when it is sitting there in the window.
-   A change that precedes the failures is a prime suspect. To find the first
-   failure, query FATAL logs with direction: "forward" so results are oldest-first,
-   and take the earliest entry. To find the trigger, query publish events with
-   direction: "backward" and take the newest entry that precedes it. Convert both
-   timestamps with `epoch_to_rfc3339` and state them, then state the computed
-   interval. If the interval exceeds 2 minutes, say the trigger event may belong
-   to an earlier window rather than asserting a causal delay. Never describe an
-   interval you have not calculated. Never explain an interval by invoking a
-   mechanism such as sync latency, caching, or propagation delay. The interval is
-   a measurement; its cause is not.
-   Cross-check your first-failure timestamp against the ONSET Triage measured from
-   metrics. They should agree to within about a minute. If they disagree by more
-   than that, your log window is wrong or is picking up another run — say so and
+4. Find the TRIGGER. Query Loki for asset publish events using
+   `asset_publish_events()` from queries.py VERBATIM — the entire selector, not
+   just the line filter. Do not add labels to it and do not compose your own. The
+   log line is lowercase and reads `asset <version> published for <shot>`. A line
+   filter such as "Asset publish" matches nothing, and a selector such as
+   {{service_name="render-farm", shot="SH042_beach_dusk"}} matches nothing either
+   because shot is not an indexed label. Both failures look exactly like the
+   publish event not existing.
+   Search the ENTIRE bounded window: pass `start_rfc3339` and leave `endRfc3339`
+   OFF. Do NOT cap the end of this search at the first-failure timestamp. The
+   publish line and the first failed frame are emitted within MILLISECONDS of each
+   other, so an end bound at the first failure can exclude the trigger by a
+   fraction of a second. Use direction: "backward" and take the newest publish
+   entry at or before the first failure.
+   To find the first failure, query FATAL logs with direction: "forward" so
+   results are oldest-first, and take the earliest entry. Convert both timestamps
+   with `epoch_to_rfc3339` and state them, then state the computed interval.
+   Compare the publish event against the FIRST FATAL LOG LINE, never against
+   Triage's metric onset. The metric onset is the first non-zero sample of a range
+   query and therefore lags the true first failure by up to one step interval;
+   subtracting the publish time from it manufactures a delay that did not happen.
+   Expect publish and first failure to be effectively simultaneous. If the
+   interval exceeds 2 minutes, say the trigger event may belong to an earlier
+   window rather than asserting a causal delay. Never describe an interval you
+   have not calculated. Never explain an interval by invoking a mechanism such as
+   sync latency, caching, or propagation delay. The interval is a measurement; its
+   cause is not.
+   Cross-check your first-failure timestamp against the metric ONSET Triage
+   measured. They should agree to within about a minute, with the metric onset the
+   LATER of the two. If the metric onset is earlier, or they disagree by more than
+   a minute, your log window is wrong or is picking up another run — say so and
    re-run bounded rather than reporting the discrepant value.
 5. Query Tempo for error traces on the render-farm service.
 6. Inspect a failing trace in detail. Identify WHICH SPAN fails. Read that
@@ -232,8 +266,9 @@ Return:
 - The suspect asset version, if any
 - Whether the log-derived node set matches the metric-derived node set (list both sets explicitly)
 - The list of failed frame numbers you observed, and whether it is complete or a sample
-- A timeline: change published, first failure, and the interval between them, with
-  the metric-derived onset alongside for comparison. If you include an alert in the timeline, you MUST query alerting_manage_rules for lastEvaluation and cite it, otherwise omit the alert from the timeline.
+- A timeline: change published, first failure from the LOGS, and the interval
+  between them, with the metric-derived onset alongside for comparison and
+  labelled as the lagging signal. If you include an alert in the timeline, you MUST query alerting_manage_rules for lastEvaluation and cite it, otherwise omit the alert from the timeline.
 - Your root cause hypothesis, with a confidence level and the specific evidence
   supporting it, naming the trace IDs and confirming each one passed the in-window
   check. Before naming a root cause, establish its BLAST RADIUS and explain
