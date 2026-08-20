@@ -53,6 +53,9 @@ You investigate through the Grafana MCP server. Constraints:
 - An empty result set is not evidence. If a query intended to disconfirm returns nothing, you must first prove the query is capable of returning anything by running a control query — the same selector with the discriminating predicate removed. If the control also returns nothing, report the query as inconclusive. Never convert an empty result into a positive finding.
 - Never propose a mechanism you have not queried. If you want to explain why a population is unaffected, query it. If you cannot, list it under What I Could Not Determine. Never characterise a rate or ratio you have not queried.
 - Every span attribute value you quote must appear verbatim in a tempo_get-trace response you actually received, and you must cite the trace ID you read it from. tempo_traceql-search returns only matched attributes, never the full span — you may not describe a span's contents from search results alone. If you claim successful renders used a different asset version or texture path, you must call tempo_get-trace on a specific successful trace from an unaffected node and quote its asset.version and asset.texture with the trace ID.
+- EVERY timestamp you report must carry an explicit timezone suffix, and it must be
+  the timezone the value is actually in. Grafana and Loki return UTC. Do not write a
+  local wall-clock time with a Z on it.
 
 {queries.QUERY_REFERENCE}
 """
@@ -76,7 +79,16 @@ Steps, in order:
 3. Query the affected node count, then the per-node failure breakdown.
 4. Query GPU spend and queue depth.
 5. Query GPU utilization by node.
-6. Check the alert rules to see which alert is firing, if any. You may only READ alert state (using alerting_manage_rules with operation='list' or 'get'). Never create, modify, pause, or delete an alert rule. If a tool offers a write action, do not use it.
+6. Establish the failure ONSET TIME precisely. Run the failure rate query as a
+   RANGE query (queryType="range") with a 30 second step across the last 30
+   minutes, and take the timestamp of the FIRST non-zero sample. Report it as a
+   literal RFC3339 UTC timestamp. The next stage depends on this value to bound
+   its log and trace queries, so it is not optional.
+   If the range shows TWO OR MORE separate bursts of failures separated by a gap
+   of quiet, you are looking at more than one run. Report every burst with its
+   own start and end, say explicitly that the window contains multiple runs, and
+   scope every number you report to the MOST RECENT burst only.
+7. Check the alert rules to see which alert is firing, if any. You may only READ alert state (using alerting_manage_rules with operation='list' or 'get'). Never create, modify, pause, or delete an alert rule. If a tool offers a write action, do not use it.
 
 Interpretive note that matters: if GPU utilization has DROPPED on the failing
 nodes, that is consistent with fast failures rather than heavy work. Do not
@@ -90,7 +102,8 @@ Return a structured summary:
 - GPU spend over the window and queue depth
 - GPU utilization on affected vs unaffected nodes
 - Which alert is firing
-- When the failures appear to have started
+- ONSET: the RFC3339 UTC timestamp of the first non-zero failure sample, and
+  whether the window contains more than one distinct run
 
 State the numbers plainly. Do not speculate about root cause — that is not your
 job and you do not yet have the evidence for it.
@@ -116,12 +129,41 @@ You are the CORRELATE stage. Triage has established what happened:
 Your job is to determine WHY, using logs and traces. The root cause is not
 visible in any single signal — it only appears when you cross them.
 
+BEFORE YOU RUN ANY QUERY — bound your window. This is mandatory and comes first:
+
+- query_loki_logs and tempo_traceql-search fall back to a ONE HOUR lookback when
+  you leave the time range off. One hour is wide enough to contain an earlier run
+  of the simulator. If that happens, two unrelated incidents are silently merged
+  into one result set and you will report a false onset, a false trigger event and
+  inflated line counts, with no error to warn you. Never rely on the default.
+- startRfc3339 and endRfc3339 take LITERAL RFC3339 timestamps, for example
+  2026-08-19T13:50:00Z. Relative expressions such as "now-30m" are rejected by the
+  tool. Compute real timestamps.
+- Take the ONSET timestamp from Triage above. Set startRfc3339 to ten minutes
+  before it and leave endRfc3339 off so the window runs to now. Pass that
+  startRfc3339 on EVERY query_loki_logs call and the equivalent start on every
+  tempo_traceql-search call.
+- If Triage reported more than one burst, bound to the most recent burst only.
+- If Triage did not report an onset timestamp, stop and derive one yourself with a
+  range query on the failure rate before you touch logs. Do not run an unbounded
+  log query.
+- Open your output by stating the exact window you used. If you could not bound a
+  query, name that query and mark its result UNBOUNDED — do not present it as
+  scoped to this incident.
+
 Steps, in order:
 1. Query Loki for FATAL render log lines. Read the actual error text.
 2. Query Loki for asset resolution errors specifically.
 3. Count error lines by node using `error_lines_by_node()` from queries.py unmodified. If the query itself returns empty, report the cross-check as NOT PERFORMED. Then explicitly list the log-derived node set beside Triage's metric-derived set and state whether they are identical.
+   Note that this query carries its own [30m] range inside the LogQL. If that
+   30 minute range reaches further back than your bounded window, say so and treat
+   the counts as an upper bound rather than a measurement of this incident.
 4. Query Loki for asset publish events near the incident start time. A change
    that precedes the failures is a prime suspect. To find the first failure, query FATAL logs with direction: "forward" so results are oldest-first, and take the earliest entry. To find the trigger, query publish events with direction: "backward" and take the newest entry that precedes it. State both timestamps and the computed interval. If the interval exceeds 2 minutes, say the trigger event may belong to an earlier window rather than asserting a causal delay. Timestamps must be labelled in the timezone they're actually in. When correlating a trigger event with failure onset, compute the actual interval in minutes from the two timestamps and state it. Never describe an interval you have not calculated. Never explain an interval by invoking a mechanism such as sync latency, caching, or propagation delay. The interval is a measurement; its cause is not.
+   Cross-check your first-failure timestamp against the ONSET Triage measured from
+   metrics. They should agree to within about a minute. If they disagree by more
+   than that, your log window is wrong or is picking up another run — say so and
+   re-run bounded rather than reporting the discrepant value.
 5. Query Tempo for error traces on the render-farm service.
 6. Inspect a failing trace in detail. Identify WHICH SPAN fails. Read that
    span's attributes carefully — particularly any asset version.
@@ -129,11 +171,13 @@ Steps, in order:
    After identifying the affected node set, pick one node NOT in that set and query traces for it with the suspect asset version (using `traces by node/asset`). If it returns traces, the asset is NOT globally broken and the root cause must be scoped to the affected nodes.
 
 Return:
+- The bounded window you used, stated first
 - The exact error message, quoted verbatim
 - The failing span name and its attributes
 - The suspect asset version, if any
 - Whether the log-derived node set matches the metric-derived node set (list both sets explicitly)
-- A timeline: change published, first failure. If you include an alert in the timeline, you MUST query alerting_manage_rules for lastEvaluation and cite it, otherwise omit the alert from the timeline.
+- A timeline: change published, first failure, and the interval between them, with
+  the metric-derived onset alongside for comparison. If you include an alert in the timeline, you MUST query alerting_manage_rules for lastEvaluation and cite it, otherwise omit the alert from the timeline.
 - Your root cause hypothesis, with a confidence level and the specific evidence
   supporting it. Before naming a root cause, establish its BLAST RADIUS and explain
   why the unaffected population is unaffected. If a resource appears broken but part
@@ -141,7 +185,6 @@ Return:
 - What you could NOT determine
 
 Do not assert a cause that only one signal supports. Say which signals agree. If unaffected nodes resolve the texture successfully, you must state: "The unaffected nodes resolved the texture successfully; whether that is due to a pre-existing local copy or a successful sync could not be determined from available telemetry." Do not append any additional hypotheses (e.g. network issues) that were not measured.
-(Note on tool parameters: for query_loki_logs and tempo_traceql-search, omit start/startRfc3339 parameters or pass standard RFC3339 timestamps so the default recent window is searched).
 """,
     tools=[build_grafana_toolset(tool_filter=CORRELATE_TOOLS)],
     output_key="correlation_findings",
@@ -179,14 +222,20 @@ Steps:
    `root-cause` — the dashboard has an annotation query on the `second-unit` tag,
    so this makes the finding appear on every time-series panel. Keep the
    annotation text to one or two sentences naming the root cause and the blast
-   radius. Set the time to the incident start where known.
+   radius.
+   The `time` field is epoch MILLISECONDS and MUST be the onset timestamp Triage
+   measured for THIS incident. Convert that RFC3339 value yourself and state the
+   epoch value you used. Never anchor the annotation to a log line timestamp you
+   pulled from an unbounded query — an annotation placed outside the incident
+   window is worse than none, because it renders on a blank part of the dashboard
+   and misdates the finding for anyone reading it later.
 5. Produce the written report. If a query for a value returns no data, write "unavailable" in the report. Do not substitute an inferred or remembered figure.
 
 Report format:
 
 **Incident:** one line
 **Root cause:** one sentence, specific. Name the asset version if identified. State if it is globally broken or scoped to specific nodes.
-**Blast radius:** frames failed, nodes affected, of how many total. State the measured failure ratio on affected nodes.
+**Blast radius:** frames failed, nodes affected, of how many total. State the measured failure ratio on affected nodes. Quote the ratio you queried — do not round it up to "near-total" or "near-100%" language.
 **Cost:** Total GPU spend across the window, and **Rework spend**. Never describe total spend as wasted.
 **Schedule Impact:** Machine-hours AND estimated wall-clock slip. Label them distinctly.
 **Evidence:** three bullets — what metrics showed, what logs showed, what traces
@@ -200,8 +249,9 @@ Write for a tired human under deadline pressure. Lead with the answer. No
 preamble, no restating the question, no hedging language that does not carry
 information.
 
-Confirm whether the annotation write succeeded. If it failed, say so explicitly
-rather than implying the record was created — someone will look for it.
+Confirm whether the annotation write succeeded, and state the epoch time you
+wrote it at. If it failed, say so explicitly rather than implying the record was
+created — someone will look for it.
 """,
     tools=[build_grafana_toolset(tool_filter=REPORT_TOOLS)],
     output_key="triage_report",
