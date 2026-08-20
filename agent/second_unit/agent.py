@@ -149,7 +149,11 @@ Return a structured summary:
   failure sample, labelled as the metric onset, and whether the window contains
   more than one distinct run
 - Whether the render was still in flight when you queried (queue depth above
-  zero and falling), because every count you reported is then a partial
+  zero and falling), because every count you reported is then a partial. If queue
+  depth is 0, say the run is complete but that counts derived from increase() are
+  approximate and may differ from the simulator's own summary by a few percent.
+  Cite `render summary: 3252 succeeded, 748 failed` as ground truth in the demo,
+  and let the agent's figure be close rather than claiming it's final.
 
 State the numbers plainly. Do not speculate about root cause — that is not your
 job and you do not yet have the evidence for it.
