@@ -25,15 +25,69 @@ async def main():
             with urllib.request.urlopen(req, timeout=15) as r:
                 return json.loads(r.read().decode()).get("data", {}).get("result", [])
 
-        # ── Gate 1: telemetry freshness ────────────────────────────────────
-        try:
-            if not _prom_instant("render_queue_depth"):
-                print("TELEMETRY STALE — start telemetry-sim first, then re-run.", flush=True)
+        # ── Gate 1: telemetry is live and fresh ─────────────────────────
+        # Probe a COUNTER, not the queue-depth gauge.
+        #
+        # render_queue_depth stops being exported the moment the simulator
+        # exits, and once its last sample ages past Prometheus' five minute
+        # staleness window an instant query returns nothing at all. A farm that
+        # ran start to finish then reports as having no telemetry, which is the
+        # opposite of the truth. render_frames_completed_total is a counter and
+        # persists, so it can be aged instead of merely tested for existence.
+        #
+        # Retry rather than fail on the first attempt. Grafana Cloud's OTLP
+        # ingest path typically runs a minute or two behind the exporter, so a
+        # single hard check immediately after launch measures ingest lag rather
+        # than whether telemetry exists.
+        FRESHNESS_LIMIT_S = 300
+        ATTEMPTS = 6
+        RETRY_WAIT_S = 20
+
+        for attempt in range(1, ATTEMPTS + 1):
+            try:
+                result = _prom_instant(
+                    "time() - max(timestamp(render_frames_completed_total))"
+                )
+            except Exception as exc:
+                print(f"Could not reach Grafana to check telemetry: {exc}", flush=True)
                 sys.exit(1)
-        except Exception as e:
-            print(f"Failed to check telemetry freshness: {e}", flush=True)
 
+            age = float(result[0]["value"][1]) if result else None
 
+            if age is not None and age <= FRESHNESS_LIMIT_S:
+                print(
+                    f"Telemetry is live — newest sample is {age:.0f}s old.",
+                    flush=True,
+                )
+                break
+
+            detail = (
+                "no render_frames_completed_total samples found at all"
+                if age is None
+                else f"newest sample is {age:.0f}s old, limit is {FRESHNESS_LIMIT_S}s"
+            )
+
+            if attempt == ATTEMPTS:
+                print(f"TELEMETRY NOT LIVE — {detail}.", flush=True)
+                print(
+                    "Start telemetry-sim, give Grafana Cloud about a minute to "
+                    "ingest, then re-run.",
+                    flush=True,
+                )
+                sys.exit(1)
+
+            print(
+                f"Waiting for telemetry ({detail}) — attempt {attempt} of {ATTEMPTS}.",
+                flush=True,
+            )
+            _time.sleep(RETRY_WAIT_S)
+    else:
+        print(
+            "GRAFANA_URL or GRAFANA_SERVICE_ACCOUNT_TOKEN is not set, so the "
+            "telemetry gate was skipped. The investigation may run against an "
+            "empty farm.",
+            flush=True,
+        )
 
     runner = InMemoryRunner(agent=root_agent, app_name="second_unit")
     session = await runner.session_service.create_session(
