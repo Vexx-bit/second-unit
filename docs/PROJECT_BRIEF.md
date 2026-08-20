@@ -19,10 +19,10 @@ without the director present. It works autonomously while the main unit sleeps.
 
 ### The problem it solves
 
-A VFX render farm burns money continuously. When an overnight batch fails at
-frame 1,400 of 4,000, nobody finds out until the supervisor opens dailies the
-next morning. By then hours of GPU spend are wasted and the delivery has
-slipped. Diagnosis means hand-correlating node metrics, render logs, and
+A VFX render farm burns money continuously. When an overnight batch starts
+failing at frame 801 of 4,000, nobody finds out until the supervisor opens
+dailies the next morning. By then hours of GPU spend are wasted and the delivery
+has slipped. Diagnosis means hand-correlating node metrics, render logs, and
 asset-pipeline traces — at 6am, under deadline pressure.
 
 That correlation work is mechanical. It is also exactly what an agent with
@@ -83,17 +83,24 @@ almost nobody else will pick it.
 telemetry-sim/  ──OTLP/HTTP──▶  Grafana Cloud
   synthetic 40-node render farm        (Mimir · Loki · Tempo)
   4,000 frames, deterministic incident            ▲
-                                                  │ MCP (streamable-http)
+                                                  │ Grafana HTTP API
                                                   │
-                                        mcp-grafana on Cloud Run
+                                          mcp-grafana
                                                   ▲
-                                                  │ McpToolset
-agent/  google-adk + Gemini  ─────────────────┘
+                                                  │ MCP over stdio
+                                                  │ (same container)
+agent/  google-adk + Gemini ──────────────────────┘
   Triage → Correlate → Report
     │
     ├──OTel──▶ Grafana Cloud AI Observability   (the agent observes itself)
     └──HTTP──▶ web/  Next.js on Vercel          (streams the investigation)
 ```
+
+The agent and `mcp-grafana` ship as **one private Cloud Run service**. ADK's
+`adk api_server` launches `uvx mcp-grafana` as a child process and speaks MCP
+over stdio, so no MCP port is ever exposed to the internet. Setting
+`GRAFANA_MCP_URL` switches the toolset to streamable-http instead, if a remote
+MCP server is ever preferred — the agent code supports both paths.
 
 ### Component status
 
@@ -102,10 +109,11 @@ agent/  google-adk + Gemini  ─────────────────
 | `telemetry-sim/` | Synthetic render farm; emits all three signals over OTLP | ✅ built |
 | `scripts/` | Compliance guard, secret guard, MCP smoke test | ✅ built |
 | `.github/workflows/` | CI enforcing the hackathon constraints | ✅ built |
-| `agent/` | ADK agent crew that performs the investigation | ⬜ next |
-| `infra/` | Cloud Run deploy for `mcp-grafana` and the agent | ⬜ todo |
+| Grafana dashboard | The "render farm" dashboard the agent annotates | ✅ built — uid `second-unit-farm`, 9 panels |
+| Grafana alert rule | Fires on sustained frame-failure rate | ✅ built — uid `dfvmtt22674e8b`, observed firing |
+| `agent/` | ADK agent crew that performs the investigation | ✅ built — Triage → Correlate → Report, verified end to end |
+| `infra/` | Cloud Run deploy for the agent + mcp-grafana | 🟡 written, not yet deployed |
 | `web/` | Next.js UI streaming agent reasoning + Grafana panels | ⬜ todo |
-| Grafana dashboard | The "render farm" dashboard the agent annotates | ⬜ todo |
 | Demo video | ≤ 3 min, showing a real investigation | ⬜ todo |
 
 ---
@@ -118,19 +126,29 @@ will be recorded many times and the narration must match the numbers.
 **Setup:** shot `SH042_beach_dusk`, 4,000 frames, 40 render nodes.
 
 **Trigger:** asset revision **v7** of `skin_albedo.exr` is published with a
-broken texture path.
+broken texture path, at frame 801.
 
 **Symptoms the agent discovers:**
 
 | Signal | What it reveals | What it does NOT reveal |
 | --- | --- | --- |
-| Metrics (Mimir) | 750 frames failed; 14 of 40 nodes affected; GPU utilization *dropped* on those nodes; $922.50 rework cost accumulating | why |
+| Metrics (Mimir) | 748 frames failed; 14 of 40 nodes affected; GPU utilization *dropped* on those nodes; $920.04 rework cost accumulating | why |
 | Logs (Loki) | `FATAL: texture not found: /assets/SH042_beach_dusk/tex/skin_albedo.v7.exr` | which change introduced it |
 | Traces (Tempo) | every failing trace shares a broken `asset_fetch` span carrying `asset.version=v7` | the blast radius |
+
+Canonical figures live in `docs/DEMO-NUMBERS.md`. That file wins over this one;
+if they disagree, this one is stale.
 
 **The point:** no single signal is sufficient. The root cause exists only in the
 correlation. That is what makes this a genuine multi-step agent task rather than
 a single tool call dressed up as one.
+
+**The blast radius is the hard part.** Once v7 publishes, *every* frame carries
+`asset.version=v7`, including the 26 healthy nodes. So "v7 is broken" is wrong —
+v7 renders fine on most of the farm. The real finding is that the asset failed to
+*synchronise* to 14 specific nodes, and the only way to establish that is a
+disconfirming trace query against a node outside the failing set. An agent that
+skips that step reports a confident, wrong root cause.
 
 **Counter-intuitive detail worth showing on camera:** GPU utilization *falls*
 during the incident, because failing nodes fail fast instead of doing work. A
@@ -150,7 +168,7 @@ catches it because it reasons about frame outcomes, not resource pressure.
 5. **Act** — write a Grafana annotation onto the dashboard marking the incident
    window and the identified cause; propose the frame re-queue
 6. **Report** — emit a structured triage summary: root cause, blast radius,
-   wasted spend, recommended remediation
+   rework spend, schedule impact, recommended remediation
 
 Sub-agents: **Triage** (steps 1–2) → **Correlate** (step 3) → **Report**
 (steps 4–6). Each has a narrow tool allowlist via ADK's `tool_filter`.
@@ -163,26 +181,28 @@ The project is complete when every box is checked.
 
 ### Functional
 
-- [ ] `make verify-mcp` passes — agent can reach Grafana through MCP
-- [ ] `telemetry-sim` reliably populates Mimir, Loki, and Tempo
-- [ ] A Grafana dashboard shows the farm: frame outcomes, cost, GPU util, queue depth
-- [ ] A Grafana alert rule fires when the failure rate crosses threshold
-- [ ] The agent runs the full six steps unattended, from alert to report
-- [ ] The agent writes a real annotation into Grafana (a visible side effect —
+- [x] `make verify-mcp` passes — agent can reach Grafana through MCP
+- [x] `telemetry-sim` reliably populates Mimir, Loki, and Tempo
+- [x] A Grafana dashboard shows the farm: frame outcomes, cost, GPU util, queue depth
+- [x] A Grafana alert rule fires when the failure rate crosses threshold
+- [x] The agent runs the full six steps unattended, from alert to report
+- [x] The agent writes a real annotation into Grafana (a visible side effect —
       proof it acts, not just reads)
-- [ ] The agent correctly identifies `asset.version=v7` as root cause, and states
-      blast radius (750 frames, 14 nodes) and rework spend ($922.50)
-- [ ] The agent is itself instrumented into Grafana Cloud AI Observability —
+- [x] The agent correctly identifies `asset.version=v7` as root cause, scopes it
+      to the 14 nodes rather than calling the asset globally broken, and states
+      blast radius (748 frames, 14 of 40 nodes) and rework spend ($920.04)
+- [x] The agent is itself instrumented into Grafana Cloud AI Observability —
       token usage, latency, tool calls per investigation
+- [ ] The agent proposes a concrete frame re-queue (step 5, write side)
 - [ ] `web/` streams the investigation live and embeds the Grafana panels
 - [ ] Deployed and publicly reachable (Vercel + Cloud Run)
 
 ### Submission
 
-- [ ] Repo public, MIT license visible in the GitHub About section
+- [x] Repo public, MIT license visible in the GitHub About section
+- [x] `scripts/check-ai-compliance.sh` green; no forbidden AI dependency
+- [x] No secret committed anywhere in git history
 - [ ] README explains the problem, architecture, and how to run it
-- [ ] `scripts/check-ai-compliance.sh` green; no forbidden AI dependency
-- [ ] No secret committed anywhere in git history
 - [ ] Demo video ≤ 3:00, public, showing a real end-to-end investigation
 - [ ] Devpost writeup: problem, what it does, how it uses Grafana MCP, what's next
 - [ ] Grafana track explicitly selected on the submission form
@@ -199,6 +219,13 @@ This one must demonstrate three things they will not:
 3. **Self-observation** — the agent's own behaviour is monitored in Grafana. An
    observability agent that is not itself observable is an unfinished thought.
 
+A fourth, earned the hard way: **the agent is built not to lie.** Its
+instructions forbid reporting an empty result as evidence, quoting a span
+attribute it did not read, explaining an interval it did not measure, or naming a
+mechanism it did not query. Each of those rules exists because an earlier run
+broke it and produced a confident, wrong answer. See the corrections log in
+`docs/DEMO-NUMBERS.md`.
+
 ---
 
 ## 7. Timeline (3 weeks from 2026-08-18)
@@ -206,7 +233,7 @@ This one must demonstrate three things they will not:
 | Window | Goal |
 | --- | --- |
 | **Week 1** (Aug 18–24) | Accounts done. Telemetry flowing. Dashboard + alert built. Agent completes steps 1–3 locally. |
-| **Week 2** (Aug 25–31) | Full six steps working. Annotation writing. AI Observability wired. `mcp-grafana` on Cloud Run. **Submit the $100 GCP credits form — hard deadline Aug 31.** |
+| **Week 2** (Aug 25–31) | Full six steps working. Annotation writing. AI Observability wired. Agent on Cloud Run. **Submit the $100 GCP credits form — hard deadline Aug 31.** |
 | **Week 3** (Sep 1–7) | `web/` built and deployed. Record and edit the video. Devpost writeup. Buffer for breakage. |
 | **Sep 8** | Submit. A full day early. |
 
