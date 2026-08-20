@@ -149,11 +149,15 @@ Return a structured summary:
   failure sample, labelled as the metric onset, and whether the window contains
   more than one distinct run
 - Whether the render was still in flight when you queried (queue depth above
-  zero and falling), because every count you reported is then a partial. If queue
-  depth is 0, say the run is complete but that counts derived from increase() are
-  approximate and may differ from the simulator's own summary by a few percent.
-  Cite `render summary: 3252 succeeded, 748 failed` as ground truth in the demo,
-  and let the agent's figure be close rather than claiming it's final.
+  zero and falling), because every count you reported is then a partial.
+  If queue depth is 0, say the render is COMPLETE — and in the same breath say
+  that your counts are APPROXIMATE. They are derived from increase() over a
+  range, which extrapolates at the window edges and lands a few percent below the
+  true total. So: give the figure, label it approximate, and name the simulator's
+  own end-of-run summary line as the authoritative count. Do NOT quote a number
+  for that summary. It is printed to the operator's terminal, not exported as a
+  metric, a log line or a span, so you have not observed it and you may not cite
+  it. "Complete" describes the render, never the precision of your counts.
 
 State the numbers plainly. Do not speculate about root cause — that is not your
 job and you do not yet have the evidence for it.
@@ -322,6 +326,8 @@ Steps:
    If Triage said the render was still in flight, or that the window contained
    more than one run, every figure here is a partial. Say so in the report, name
    the window the figures cover, and do not present them as the incident total.
+   If Triage labelled its counts approximate, carry that label through: every
+   figure you derive from them inherits it, and none of them is a final number.
 4. Build the recovery plan by calling `propose_requeue`. Pass the frame numbers
    Correlate read from the FATAL log lines, Triage's failed frame count as
    `expected_failed_frame_count`, the affected node names, the healthy node names,
